@@ -11,11 +11,14 @@ import logging
 from dotenv import load_dotenv
 
 # Detect deployment environment
-# Check for Streamlit Cloud indicators or local development
+# Check for Streamlit Cloud indicators
 CLOUD_MODE = (
     os.getenv('STREAMLIT_SHARING_MODE') is not None or 
     os.getenv('STREAMLIT_CLOUD') is not None or
-    not os.path.exists('src')  # Local development or cloud if no src directory
+    '/mount/src/' in os.getcwd() or  # Streamlit Cloud path indicator
+    os.path.exists('/mount/src') or  # Additional Streamlit Cloud check
+    'streamlit_app' in os.path.basename(__file__) and not os.path.exists('/app') or  # Cloud app file without Docker
+    not os.path.exists('src')  # Fallback: no src directory
 )
 
 # Debug info (remove in production)
@@ -23,6 +26,9 @@ if os.getenv('DEBUG', 'false').lower() == 'true':
     st.sidebar.write(f"🔍 Debug: CLOUD_MODE = {CLOUD_MODE}")
     st.sidebar.write(f"🔍 Debug: Current dir = {os.getcwd()}")
     st.sidebar.write(f"🔍 Debug: Files = {os.listdir('.')[:5]}...")
+    st.sidebar.write(f"🔍 Debug: /mount/src in cwd = {'/mount/src/' in os.getcwd()}")
+    st.sidebar.write(f"🔍 Debug: STREAMLIT_SHARING_MODE = {os.getenv('STREAMLIT_SHARING_MODE')}")
+    st.sidebar.write(f"🔍 Debug: src exists = {os.path.exists('src')}")
 
 # Import appropriate modules based on environment
 if CLOUD_MODE:

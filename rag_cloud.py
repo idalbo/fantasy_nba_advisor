@@ -13,15 +13,26 @@ class FantasyNBARag:
     def __init__(self, groq_api_key: str = None, cloud_mode: bool = False):
         self.cloud_mode = cloud_mode
         
-        # Initialize Groq client
+        # Initialize Groq client - prioritize passed API key over environment
         self.groq_client = None
+        api_key_to_use = None
+        
         if groq_api_key:
+            # User provided API key takes priority
+            api_key_to_use = groq_api_key
+        else:
+            # Fall back to environment key
+            api_key_to_use = os.getenv('GROQ_API_KEY')
+        
+        if api_key_to_use:
             try:
-                self.groq_client = Groq(api_key=groq_api_key)
+                self.groq_client = Groq(api_key=api_key_to_use)
                 logger.info("Groq client initialized successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize Groq client: {e}")
                 self.groq_client = None
+        else:
+            logger.warning("No Groq API key provided. AI features will be disabled.")
         
         # Load sample data for cloud mode
         if cloud_mode:
@@ -183,3 +194,17 @@ Focus on Fantasy Points Per Minute (FPPM) as the key efficiency metric. Provide 
         # Return top players by rank
         sorted_players = sorted(self.sample_data, key=lambda x: x['fantasy_rank'])
         return sorted_players[:num_results]
+    
+    def rag(self, query: str, num_results: int = 5) -> tuple[str, List[Dict[str, Any]]]:
+        """
+        RAG method to match the interface expected by the main app
+        Returns a tuple of (response, search_results)
+        """
+        if not self.cloud_mode:
+            return "Cloud mode not enabled", []
+        
+        # Get response and search results
+        response = self.get_response(query)
+        search_results = self.search_players(query, num_results)
+        
+        return response, search_results

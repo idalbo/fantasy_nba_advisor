@@ -1,0 +1,107 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Data and logs
+data/
+logs/
+*.log
+
+# Database storage
+qdrant_storage/
+
+# Monitoring and evaluation outputs
+monitoring/*.jsonl
+monitoring/monitoring_report_*.json
+evaluation/evaluation_results_*.json
+
+# Streamlit
+.streamlit/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~.nib
+*test*.py
+*debug*.py
+*temp*.py
+
+# Coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# API keys and secrets
+.env*
+!.env.example
+
+# Development artifacts
+check_stats_content.py
+delete_collection.py
+force_recreate_collection.py
+
+# Agent-specific files
+AGENT_INSTRUCTIONS.md
+PRODUCTION_READY.md
+.github/prompts/
+main.md
+
+# Agent-specific files
+AGENT_INSTRUCTIONS.md
+.github/prompts/
+main.md
+PRODUCTION_READY.md

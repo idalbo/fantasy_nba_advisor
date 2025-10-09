@@ -23,7 +23,7 @@ ingest-data: build
 
 project-run: build
 	@echo "Starting the Fantasy NBA Advisor application..."
-	docker-compose up
+	docker-compose up -d
 
 stop:
 	@echo "Stopping all services..."

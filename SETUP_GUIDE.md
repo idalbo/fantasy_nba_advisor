@@ -174,9 +174,13 @@ fantasy_nba_advisor/
 │   └── retrieval_evaluator.py      # In-app evaluation functionality
 ├── evaluation/
 │   └── comprehensive_evaluation.py # Standalone testing script
+├── streamlit_app.py                # Streamlit Cloud entry point
+├── rag_cloud.py                    # Cloud-compatible RAG system
+├── cli.py                          # Command-line interface
 ├── docker-compose.yml              # Container orchestration
 ├── Dockerfile                      # Application container definition
-├── requirements.txt                # Python dependencies
+├── requirements.txt                # Python dependencies (Cloud)
+├── requirements_docker.txt         # Python dependencies (Docker)
 ├── .env                            # Environment variables (create from .env.example)
 ├── README.md                       # User documentation
 └── Makefile                        # Build and run commands

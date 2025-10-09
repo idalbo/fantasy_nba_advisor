@@ -7,10 +7,30 @@ import json
 import os
 import time
 from datetime import datetime
-from rag import FantasyNBARag
-from retrieval_evaluator import RetrievalEvaluator
 import logging
 from dotenv import load_dotenv
+
+# Detect deployment environment
+CLOUD_MODE = os.getenv('STREAMLIT_SHARING_MODE') or not os.path.exists('/app')
+
+# Import appropriate modules based on environment
+if CLOUD_MODE:
+    # Cloud deployment - use simplified imports
+    try:
+        from rag_cloud import FantasyNBARag
+        RETRIEVAL_EVALUATOR_AVAILABLE = False
+    except ImportError:
+        st.error("Cloud deployment error: Unable to import required modules")
+        st.stop()
+else:
+    # Local Docker deployment - use full functionality
+    try:
+        from rag import FantasyNBARag
+        from retrieval_evaluator import RetrievalEvaluator
+        RETRIEVAL_EVALUATOR_AVAILABLE = True
+    except ImportError:
+        st.error("Local deployment error: Unable to import required modules")
+        st.stop()
 
 # Load environment variables
 load_dotenv()
@@ -159,6 +179,25 @@ def main():
     with st.sidebar:
         st.header("🔧 Configuration")
         
+        # Show deployment mode notice
+        if CLOUD_MODE:
+            st.info("""
+            🌐 **Cloud Demo Mode**
+            
+            Limited functionality with sample data. 
+            For full features, run locally with Docker.
+            
+            [Setup Guide](https://github.com/idalbo/fantasy_nba_advisor/blob/main/SETUP_GUIDE.md)
+            """)
+        else:
+            st.success("""
+            🐳 **Local Docker Mode**
+            
+            Full functionality with real NBA data and vector search enabled.
+            """)
+        
+        st.markdown("---")
+        
         # Groq API Key input (prioritize user input over environment)
         groq_api_key = st.text_input(
             "Groq API Key", 
@@ -180,7 +219,11 @@ def main():
             
             if st.session_state.rag is None or st.session_state.rag.groq_client is None:
                 try:
-                    st.session_state.rag = FantasyNBARag(groq_api_key)
+                    if CLOUD_MODE:
+                        st.session_state.rag = FantasyNBARag(groq_api_key, cloud_mode=True)
+                    else:
+                        st.session_state.rag = FantasyNBARag(groq_api_key)
+                    
                     if st.session_state.rag.groq_client:
                         st.markdown('<div class="api-success">✅ Connected to Fantasy NBA database with AI capabilities!</div>', unsafe_allow_html=True)
                     else:
@@ -189,7 +232,10 @@ def main():
                     st.markdown(f'<div class="api-warning">⚠️ Error connecting: {str(e)}</div>', unsafe_allow_html=True)
         else:
             if st.session_state.rag is None:
-                st.session_state.rag = FantasyNBARag()  # Initialize without API key
+                if CLOUD_MODE:
+                    st.session_state.rag = FantasyNBARag(cloud_mode=True)  # Initialize cloud mode without API key
+                else:
+                    st.session_state.rag = FantasyNBARag()  # Initialize without API key
             st.markdown('<div class="api-warning">⚠️ Enter Groq API key above for AI-powered responses</div>', unsafe_allow_html=True)
             st.markdown("**Without API key:**")
             st.markdown("- ✅ Browse player statistics")
@@ -387,9 +433,44 @@ def show_monitoring_dashboard():
 def show_system_evaluation():
     """Show system evaluation results"""
     st.header("🔬 System Evaluation")
+    
+    if CLOUD_MODE or not RETRIEVAL_EVALUATOR_AVAILABLE:
+        st.info("""
+        🌐 **System Evaluation - Cloud Demo Mode**
+        
+        Full system evaluation is only available in local Docker deployment mode.
+        This requires Qdrant vector database and comprehensive retrieval testing.
+        
+        **Available in Local Mode:**
+        - Embedding model comparison
+        - Retrieval method evaluation  
+        - Fusion and reranking analysis
+        - Performance benchmarking
+        
+        **To access full evaluation:**
+        1. Run locally with Docker
+        2. Complete data ingestion  
+        3. Access this tab for comprehensive testing
+        
+        [Setup Guide](https://github.com/idalbo/fantasy_nba_advisor/blob/main/SETUP_GUIDE.md)
+        """)
+        
+        # Show sample evaluation metrics for demo
+        st.subheader("📊 Sample Evaluation Metrics")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Retrieval Precision", "0.85", "Local mode only")
+        with col2:
+            st.metric("Response Time", "<1s", "Local mode only") 
+        with col3:
+            st.metric("Player Coverage", "450+", "Local mode only")
+        
+        return
+    
     st.write("Comprehensive evaluation of retrieval approaches, embedding models, and system performance.")
     
-    # Initialize evaluator
+    # Initialize evaluator  
     if 'evaluator' not in st.session_state:
         if hasattr(st.session_state.rag, 'qdrant_client'):
             st.session_state.evaluator = RetrievalEvaluator(st.session_state.rag.qdrant_client)

@@ -52,19 +52,24 @@ def export_qdrant_data():
         for point in points:
             payload = point.payload
             
+            # Debug: print first few payloads to see structure
+            if len(export_data) < 3:
+                print(f"DEBUG - Payload keys: {list(payload.keys())}")
+                print(f"DEBUG - Sample payload: {dict(list(payload.items())[:5])}")
+            
             # Ensure all required fields for cloud compatibility
             player_data = {
                 "id": str(point.id),
-                "player_name": payload.get("name", "Unknown"),
-                "name": payload.get("name", "Unknown"),  # For chart compatibility
+                "player_name": payload.get("player_name", payload.get("name", "Unknown")),
+                "name": payload.get("player_name", payload.get("name", "Unknown")),  # For chart compatibility
                 "position": payload.get("position", "N/A"),
                 "team": payload.get("team", "N/A"),
                 "fppm": float(payload.get("fppm", 0)),
                 "fantasy_points": float(payload.get("fantasy_points", payload.get("fppm", 0) * 35)),  # Estimate FP from FPPM
-                "fantasy_rank": int(payload.get("fantasy_rank", 999)),
+                "fantasy_rank": int(payload.get("fantasy_rank", payload.get("overall_rank", 999))),
                 "stats_narrative": payload.get("stats_narrative", "NBA player statistics"),
                 "expert_analysis": payload.get("expert_analysis", "Professional basketball player"),
-                "elite_ranking": payload.get("elite_ranking", f"Rank {payload.get('fantasy_rank', 'Unknown')}"),
+                "elite_ranking": payload.get("elite_ranking", f"Rank {payload.get('fantasy_rank', payload.get('overall_rank', 'Unknown'))}"),
                 "injury_status": payload.get("injury_status", "Healthy"),
                 "recent_performance": payload.get("recent_performance", "Consistent performance"),
                 "matchup_analysis": payload.get("matchup_analysis", "Standard matchup expectations"),

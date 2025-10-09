@@ -93,6 +93,9 @@ coverage.xml
 check_stats_content.py
 delete_collection.py
 force_recreate_collection.py
+requirements_streamlit.txt
+SETUP_GUIDE_old.md
+README_old.md
 
 # Agent-specific files
 AGENT_INSTRUCTIONS.md

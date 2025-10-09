@@ -39,13 +39,27 @@ class FantasyNBARag:
             self.sample_data = self._load_sample_data()
     
     def _load_sample_data(self) -> List[Dict[str, Any]]:
-        """Load sample NBA player data for cloud demo"""
+        """Load NBA player data for cloud demo"""
+        try:
+            # Try to load full dataset first
+            if os.path.exists('nba_players_full.json'):
+                with open('nba_players_full.json', 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    logger.info(f"Loaded {len(data)} NBA players from full dataset")
+                    return data
+        except Exception as e:
+            logger.warning(f"Could not load full dataset: {e}")
+        
+        # Fallback to sample data
+        logger.info("Using sample data fallback")
         return [
             {
                 "player_name": "Nikola Jokić",
+                "name": "Nikola Jokić",  # For chart compatibility
                 "position": "C",
                 "team": "DEN",
                 "fppm": 1.286,
+                "fantasy_points": 47.2,  # For chart compatibility
                 "fantasy_rank": 1,
                 "stats_narrative": "Elite center averaging 47.2 fantasy points per game with exceptional efficiency. Triple-double threat every night.",
                 "expert_analysis": "The best fantasy pick in basketball. Consistent production across all categories.",
@@ -53,9 +67,11 @@ class FantasyNBARag:
             },
             {
                 "player_name": "Giannis Antetokounmpo", 
+                "name": "Giannis Antetokounmpo",
                 "position": "PF",
                 "team": "MIL",
                 "fppm": 1.221,
+                "fantasy_points": 41.75,
                 "fantasy_rank": 2,
                 "stats_narrative": "Dominant two-way player with 41.75 fantasy points per game. Elite in rebounds, assists, blocks.",
                 "expert_analysis": "Perennial MVP candidate with consistent fantasy production.",

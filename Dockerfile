@@ -10,13 +10,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first to leverage Docker layer caching
-COPY requirements.txt .
+COPY requirements_docker.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements_docker.txt
 
 # Copy the application code
 COPY src/ ./src/
+COPY streamlit_app.py .
+COPY rag_cloud.py .
 COPY .env .env
 
 # Create necessary directories
@@ -26,4 +28,4 @@ RUN mkdir -p data monitoring
 EXPOSE 8501
 
 # Default command (can be overridden by docker-compose)
-CMD ["streamlit", "run", "src/app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
+CMD ["streamlit", "run", "streamlit_app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]

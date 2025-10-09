@@ -11,25 +11,47 @@ import logging
 from dotenv import load_dotenv
 
 # Detect deployment environment
-CLOUD_MODE = os.getenv('STREAMLIT_SHARING_MODE') or not os.path.exists('/app')
+# Check for Streamlit Cloud indicators or local development
+CLOUD_MODE = (
+    os.getenv('STREAMLIT_SHARING_MODE') is not None or 
+    os.getenv('STREAMLIT_CLOUD') is not None or
+    not os.path.exists('src')  # Local development or cloud if no src directory
+)
+
+# Debug info (remove in production)
+if os.getenv('DEBUG', 'false').lower() == 'true':
+    st.sidebar.write(f"🔍 Debug: CLOUD_MODE = {CLOUD_MODE}")
+    st.sidebar.write(f"🔍 Debug: Current dir = {os.getcwd()}")
+    st.sidebar.write(f"🔍 Debug: Files = {os.listdir('.')[:5]}...")
 
 # Import appropriate modules based on environment
 if CLOUD_MODE:
     # Cloud deployment - use simplified imports
     try:
+        import sys
+        sys.path.append('.')
         from rag_cloud import FantasyNBARag
         RETRIEVAL_EVALUATOR_AVAILABLE = False
-    except ImportError:
-        st.error("Cloud deployment error: Unable to import required modules")
+    except ImportError as e:
+        st.error(f"Cloud deployment error: Unable to import required modules: {e}")
         st.stop()
 else:
     # Local Docker deployment - use full functionality
     try:
+        import sys
+        # Add src directory to path for Docker deployment
+        src_path = os.path.join(os.path.dirname(__file__), 'src')
+        if src_path not in sys.path:
+            sys.path.insert(0, src_path)
+        
         from rag import FantasyNBARag
         from retrieval_evaluator import RetrievalEvaluator
         RETRIEVAL_EVALUATOR_AVAILABLE = True
-    except ImportError:
-        st.error("Local deployment error: Unable to import required modules")
+    except ImportError as e:
+        st.error(f"Local deployment error: Unable to import required modules: {e}")
+        st.info("Make sure you're running this from the correct directory with src/ folder available")
+        st.info(f"Current directory: {os.getcwd()}")
+        st.info(f"Available files: {os.listdir('.')}")
         st.stop()
 
 # Load environment variables

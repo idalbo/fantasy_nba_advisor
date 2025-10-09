@@ -8,7 +8,7 @@ import os
 import time
 from datetime import datetime
 from rag import FantasyNBARag
-from evaluation import RetrievalEvaluator
+from retrieval_evaluator import RetrievalEvaluator
 import logging
 from dotenv import load_dotenv
 

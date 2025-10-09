@@ -1,5 +1,12 @@
 """
-Evaluation module for retrieval approaches, embedding models, and RAG performance
+Retrieval Evaluator - Library Module for In-App Evaluation
+
+This module provides real-time evaluation functionality for the main Streamlit application.
+Used by src/app.py to evaluate different retrieval approaches, embedding models, and RAG performance.
+
+Purpose: Embedded evaluation functionality within the main application
+Usage: Imported by the Streamlit app for ongoing performance monitoring
+Class: RetrievalEvaluator
 """
 
 import time

@@ -1,3 +1,14 @@
+"""
+Comprehensive Evaluation Script - Standalone Testing and Analysis
+
+This script provides comprehensive evaluation capabilities for development and testing.
+Can be run independently to analyze retrieval quality, LLM responses, and embedding performance.
+
+Purpose: Standalone evaluation script for comprehensive testing and benchmarking
+Usage: Run directly as `python evaluation/comprehensive_evaluation.py`
+Class: FantasyNBAEvaluator
+"""
+
 import json
 import pandas as pd
 import numpy as np

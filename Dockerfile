@@ -18,11 +18,11 @@ RUN pip install --no-cache-dir -r requirements_docker.txt
 # Copy the application code
 COPY src/ ./src/
 COPY streamlit_app.py .
-COPY rag_cloud.py .
+COPY nba_players_full.json .
 COPY .env .env
 
 # Create necessary directories
-RUN mkdir -p data monitoring
+RUN mkdir -p data monitoring evaluation
 
 # Expose the port that Streamlit runs on
 EXPOSE 8501

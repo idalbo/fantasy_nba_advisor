@@ -18,7 +18,7 @@ ingest-data: build
 	@echo "Waiting for Qdrant to be ready..."
 	sleep 20
 	@echo "Running data ingestion..."
-	docker-compose run --rm fantasy-nba python src/data_ingestion.py
+	docker-compose run --rm fantasy-nba python -c "import sys; sys.path.append('src'); from data_ingestion import DataIngestion; DataIngestion().run_ingestion()"
 	@echo "Data ingestion completed!"
 
 project-run: build

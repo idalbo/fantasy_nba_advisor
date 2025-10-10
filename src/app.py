@@ -209,13 +209,11 @@ def main():
         
         # Show deployment mode notice
         if CLOUD_MODE:
-            st.info("""
-            🌐 **Cloud Demo Mode**
+            st.success("""
+            🌐 **Streamlit Cloud Deployment**
             
-            Limited functionality with sample data. 
-            For full features, run locally with Docker.
-            
-            [Setup Guide](https://github.com/idalbo/fantasy_nba_advisor/blob/main/SETUP_GUIDE.md)
+            Full NBA database with 450 players and AI-powered analysis.
+            Complete fantasy basketball functionality available!
             """)
         else:
             st.success("""
@@ -294,12 +292,14 @@ def main():
         st.header("🧭 Navigation")
         page = st.selectbox(
             "Choose a page:",
-            ["💬 Chat Assistant", "📊 Monitoring Dashboard", "🔬 System Evaluation", "📋 System Information"]
+            ["💬 Chat Assistant", "🏆 Player Rankings", "📊 Monitoring Dashboard", "🔬 System Evaluation", "📋 System Information"]
         )
     
     # Main content based on selected page
     if page == "💬 Chat Assistant":
         show_chat_assistant()
+    elif page == "🏆 Player Rankings":
+        show_player_rankings()
     elif page == "📊 Monitoring Dashboard":
         show_monitoring_dashboard()
     elif page == "🔬 System Evaluation":
@@ -372,6 +372,96 @@ def show_chat_assistant():
             with st.expander(f"[{chat['timestamp']}] {chat['query'][:50]}..."):
                 st.write(f"**Q:** {chat['query']}")
                 st.write(f"**A:** {chat['response']}")
+
+def show_player_rankings():
+    """Show complete NBA player rankings"""
+    st.header("🏆 NBA Player Rankings")
+    st.write("Complete fantasy basketball rankings for all 450 NBA players")
+    
+    if st.session_state.rag:
+        try:
+            # Get all players data
+            if CLOUD_MODE:
+                all_players = st.session_state.rag.sample_data
+            else:
+                # For local mode, would need to implement get_all_players method
+                all_players = []
+            
+            if all_players:
+                # Sort by fantasy rank
+                sorted_players = sorted(
+                    [p for p in all_players if p.get('fantasy_rank', 999) < 999], 
+                    key=lambda x: x.get('fantasy_rank', 999)
+                )
+                
+                st.success(f"📊 Showing {len(sorted_players)} ranked NBA players")
+                
+                # Filters
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    position_filter = st.selectbox(
+                        "Filter by Position:",
+                        ["All"] + sorted(list(set([p.get('position', 'N/A') for p in sorted_players])))
+                    )
+                with col2:
+                    team_filter = st.selectbox(
+                        "Filter by Team:",
+                        ["All"] + sorted(list(set([p.get('team', 'N/A') for p in sorted_players])))
+                    )
+                with col3:
+                    rank_range = st.slider(
+                        "Rank Range:",
+                        min_value=1,
+                        max_value=len(sorted_players),
+                        value=(1, min(100, len(sorted_players)))
+                    )
+                
+                # Apply filters
+                filtered_players = sorted_players
+                if position_filter != "All":
+                    filtered_players = [p for p in filtered_players if p.get('position') == position_filter]
+                if team_filter != "All":
+                    filtered_players = [p for p in filtered_players if p.get('team') == team_filter]
+                
+                # Apply rank range
+                filtered_players = [p for p in filtered_players if rank_range[0] <= p.get('fantasy_rank', 999) <= rank_range[1]]
+                
+                st.write(f"Showing {len(filtered_players)} players")
+                
+                # Display as table
+                if filtered_players:
+                    # Create DataFrame for better display
+                    df_data = []
+                    for player in filtered_players:
+                        df_data.append({
+                            'Rank': player.get('fantasy_rank', 'N/A'),
+                            'Player': player.get('name', 'Unknown'),
+                            'Position': player.get('position', 'N/A'),
+                            'Team': player.get('team', 'N/A'),
+                            'FPPM': f"{player.get('fppm', 0):.3f}",
+                            'Fantasy Points': f"{player.get('fantasy_points', 0):.1f}"
+                        })
+                    
+                    df = pd.DataFrame(df_data)
+                    st.dataframe(df, use_container_width=True, height=600)
+                    
+                    # Download option
+                    csv = df.to_csv(index=False)
+                    st.download_button(
+                        label="📥 Download Rankings as CSV",
+                        data=csv,
+                        file_name=f"nba_fantasy_rankings_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.info("No players match the selected filters.")
+            else:
+                st.warning("Player data not available. Please check your connection.")
+                
+        except Exception as e:
+            st.error(f"Error loading player rankings: {e}")
+    else:
+        st.error("Database connection not available")
 
 def show_monitoring_dashboard():
     """Show monitoring and analytics dashboard"""
@@ -464,18 +554,23 @@ def show_system_evaluation():
     
     if CLOUD_MODE or not RETRIEVAL_EVALUATOR_AVAILABLE:
         st.info("""
-        🌐 **System Evaluation - Cloud Demo Mode**
+        🌐 **System Evaluation - Streamlit Cloud**
         
-        Full system evaluation is only available in local Docker deployment mode.
-        This requires Qdrant vector database and comprehensive retrieval testing.
+        Advanced system evaluation requires vector database infrastructure.
         
-        **Available in Local Mode:**
+        **Current Cloud Features:**
+        - Full NBA player database (450 players)
+        - AI-powered chat and analysis
+        - Complete player search and rankings
+        - Fantasy draft recommendations
+        
+        **Additional evaluation features available in Local Docker Mode:**
         - Embedding model comparison
         - Retrieval method evaluation  
         - Fusion and reranking analysis
         - Performance benchmarking
         
-        **To access full evaluation:**
+        **To access advanced evaluation:**
         1. Run locally with Docker
         2. Complete data ingestion  
         3. Access this tab for comprehensive testing

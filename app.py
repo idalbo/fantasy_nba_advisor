@@ -31,31 +31,50 @@ st.set_page_config(
     page_title="Fantasy NBA Advisor",
     page_icon="🏀",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
-
-# Custom CSS to hide sidebar
-st.markdown("""
-<style>
-    .css-1d391kg {display: none;}
-    .css-1aumxhk {display: none;}
-    section[data-testid="stSidebar"] {display: none;}
-    .stSidebar {display: none;}
-</style>
-""", unsafe_allow_html=True)
 
 def main():
     st.title("🏀 Fantasy NBA Advisor")
     st.markdown("---")
     
-    # Initialize the RAG system
-    if 'rag_system' not in st.session_state:
+    # API Key input section
+    st.sidebar.title("⚙️ Configuration")
+    
+    # Get API key from user input
+    api_key = st.sidebar.text_input(
+        "Enter your Groq API Key:",
+        type="password",
+        help="Get your free API key from https://console.groq.com/keys"
+    )
+    
+    if not api_key:
+        st.info("👈 Please enter your Groq API key in the sidebar to start using the Fantasy NBA Advisor")
+        st.markdown("""
+        ### How to get your Groq API Key:
+        1. Go to [Groq Console](https://console.groq.com/keys)
+        2. Sign up for a free account
+        3. Create a new API key
+        4. Copy and paste it in the sidebar
+        
+        ### Features available:
+        - 🔍 Search for NBA players
+        - 📊 Get player statistics and analysis
+        - 🤖 AI-powered fantasy advice
+        - 💡 Team composition recommendations
+        """)
+        return
+    
+    # Initialize the RAG system with user's API key
+    if 'rag_system' not in st.session_state or st.session_state.get('current_api_key') != api_key:
         try:
             with st.spinner("Initializing NBA Advisor..."):
-                st.session_state.rag_system = UnifiedFantasyNBARag()
-            st.success("NBA Advisor initialized successfully!")
+                st.session_state.rag_system = UnifiedFantasyNBARag(groq_api_key=api_key)
+                st.session_state.current_api_key = api_key
+            st.success("✅ NBA Advisor initialized successfully!")
         except Exception as e:
-            st.error(f"Failed to initialize NBA Advisor: {e}")
+            st.error(f"❌ Failed to initialize NBA Advisor: {e}")
+            st.info("Please check your API key and try again")
             return
     
     # Chat interface

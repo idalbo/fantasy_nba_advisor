@@ -1,4 +1,13 @@
 import streamlit as st
+
+# Page configuration - MUST BE FIRST STREAMLIT COMMAND
+st.set_page_config(
+    page_title="Fantasy NBA Advisor",
+    page_icon="🏀",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -21,7 +30,14 @@ CLOUD_MODE = (
     not os.path.exists('src')  # Fallback: no src directory
 )
 
-# Debug info (remove in production)
+# Load environment variables
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Debug info (after page config)
 if os.getenv('DEBUG', 'false').lower() == 'true':
     st.sidebar.write(f"🔍 Debug: CLOUD_MODE = {CLOUD_MODE}")
     st.sidebar.write(f"🔍 Debug: Current dir = {os.getcwd()}")
@@ -30,15 +46,16 @@ if os.getenv('DEBUG', 'false').lower() == 'true':
     st.sidebar.write(f"🔍 Debug: STREAMLIT_SHARING_MODE = {os.getenv('STREAMLIT_SHARING_MODE')}")
     st.sidebar.write(f"🔍 Debug: src exists = {os.path.exists('src')}")
 
-# Load environment variables
-load_dotenv()
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 # Import unified modules for consistent functionality
 try:
+    import sys
+    import os
+    
+    # Add src directory to path if not already there
+    src_dir = os.path.dirname(__file__)
+    if src_dir not in sys.path:
+        sys.path.insert(0, src_dir)
+    
     from rag_unified import UnifiedFantasyNBARag
     UNIFIED_RAG_AVAILABLE = True
     logger.info("✅ Using unified RAG system with full evaluation capabilities")
@@ -56,14 +73,6 @@ try:
 except ImportError as e:
     FULL_EVALUATION_AVAILABLE = False
     logger.warning(f"Vector-based evaluation tools not available: {e}")
-
-# Page configuration
-st.set_page_config(
-    page_title="Fantasy NBA Advisor",
-    page_icon="🏀",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # Custom CSS
 st.markdown("""
@@ -195,16 +204,6 @@ def main():
     
     # Sidebar
     with st.sidebar:
-        st.header("🔧 Configuration")
-        
-        # Show deployment mode notice
-        deployment_info = "🚀 **Fantasy NBA Advisor - Full Featured**\n\nComplete NBA database with 450 players, AI-powered analysis, and comprehensive evaluation tools."
-        deployment_info += "\n\n✅ **Unified System Active**\n- Full evaluation capabilities\n- Advanced search and AI features\n- Consistent performance across environments"
-        
-        st.success(deployment_info)
-        
-        st.markdown("---")
-        
         # Groq API Key input (prioritize user input over environment)
         groq_api_key = st.text_input(
             "Groq API Key", 
@@ -227,18 +226,11 @@ def main():
             if st.session_state.rag is None or (hasattr(st.session_state.rag, 'groq_client') and st.session_state.rag.groq_client is None):
                 try:
                     st.session_state.rag = UnifiedFantasyNBARag(groq_api_key)
-                    
-                    if hasattr(st.session_state.rag, 'groq_client') and st.session_state.rag.groq_client:
-                        st.markdown('<div class="api-success">✅ Connected to Fantasy NBA database with AI capabilities!</div>', unsafe_allow_html=True)
-                        st.markdown('<div class="api-success">🚀 Unified system active - Full evaluation capabilities enabled!</div>', unsafe_allow_html=True)
-                    else:
-                        st.markdown('<div class="api-warning">⚠️ Invalid API key. Please check your Groq API key.</div>', unsafe_allow_html=True)
                 except Exception as e:
                     st.markdown(f'<div class="api-warning">⚠️ Error connecting: {str(e)}</div>', unsafe_allow_html=True)
         else:
             if st.session_state.rag is None:
                 st.session_state.rag = UnifiedFantasyNBARag()
-            st.markdown('<div class="api-warning">⚠️ Enter Groq API key above for AI-powered responses</div>', unsafe_allow_html=True)
             st.markdown("**Without API key:**")
             st.markdown("- ✅ Browse player statistics")
             st.markdown("- ✅ Search and filter players")

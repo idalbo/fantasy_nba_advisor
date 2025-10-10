@@ -152,99 +152,155 @@ class UnifiedFantasyNBARag:
         ]
     
     def search_players(self, query: str, num_results: int = 5) -> List[Dict[str, Any]]:
-        """Enhanced semantic search without regex cheating - proper RAG approach"""
+        """Enhanced semantic search with character normalization and improved logic"""
+        import unicodedata
+        
+        # Normalize query to handle special characters (e.g., jokic -> jokić)
+        def normalize_text(text):
+            """Normalize text to handle special characters and accents"""
+            if not text:
+                return "", ""
+            # Convert to lowercase and normalize unicode characters
+            text = text.lower()
+            # Also create an ASCII version for broader matching
+            ascii_version = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
+            return text, ascii_version
+        
         query_lower = query.lower()
+        query_normalized, query_ascii = normalize_text(query_lower)
         results = []
         
-        # Use semantic search approach - let AI understand context from enriched player data
-        # Instead of regex matching, we'll score players based on semantic relevance
+        # Team name mappings for better matching
+        team_mappings = {
+            'lakers': 'lal', 'warriors': 'gsw', 'celtics': 'bos', 'heat': 'mia',
+            'nuggets': 'den', 'bucks': 'mil', 'suns': 'phx', 'clippers': 'lac',
+            'nets': 'bkn', 'knicks': 'nyk', 'bulls': 'chi', 'cavaliers': 'cle',
+            'mavericks': 'dal', 'rockets': 'hou', 'pacers': 'ind', 'thunder': 'okc',
+            'magic': 'orl', 'sixers': 'phi', '76ers': 'phi', 'blazers': 'por',
+            'kings': 'sac', 'spurs': 'sas', 'raptors': 'tor', 'jazz': 'uta',
+            'wizards': 'was', 'hawks': 'atl', 'hornets': 'cho', 'pistons': 'det',
+            'grizzlies': 'mem', 'timberwolves': 'min', 'pelicans': 'nop'
+        }
+        
+        # Position mappings for better matching
+        position_mappings = {
+            'point guard': 'pg', 'shooting guard': 'sg', 'small forward': 'sf',
+            'power forward': 'pf', 'center': 'c', 'guard': ['pg', 'sg'],
+            'forward': ['sf', 'pf'], 'big man': ['pf', 'c'], 'big': ['pf', 'c']
+        }
         
         for player in self.sample_data:
             score = 0
             
-            # Create enriched text representation of each player for semantic matching
-            player_text = f"""
-            Player: {player.get('name', '')} 
-            Position: {player.get('position', '')} 
-            Team: {player.get('team', '')}
-            Fantasy Rank: #{player.get('fantasy_rank', 999)}
-            Draft Position: around pick {player.get('fantasy_rank', 999)}
-            Fantasy Points Per Game: {player.get('fantasy_points', 0):.1f}
-            Fantasy Points Per Minute: {player.get('fppm', 0):.3f}
-            Expert Analysis: {player.get('expert_analysis', '')}
-            Stats: {player.get('stats_narrative', '')}
-            Suitable for draft pick: {player.get('fantasy_rank', 999)}
-            """.lower()
+            # Get player name in both original and ASCII versions
+            player_name = player.get('name', '')
+            player_name_norm, player_name_ascii = normalize_text(player_name)
+            player_position = player.get('position', '').upper()
+            player_team = player.get('team', '').lower()
+            player_rank = player.get('fantasy_rank', 999)
             
             # Semantic matching - count query term relevance in player context
-            query_terms = query_lower.split()
+            query_terms = query_normalized.split()
+            query_terms_ascii = query_ascii.split() if query_ascii != query_normalized else []
             
-            for term in query_terms:
-                # Player name matching (highest weight)
-                if term in player.get('name', '').lower():
+            # Track if this is a name-based search to avoid false positives
+            is_name_search = False
+            
+            for term in query_terms + query_terms_ascii:
+                if not term:
+                    continue
+                    
+                # Player name matching (highest weight) - check both normalized and ASCII
+                if (term in player_name_norm or 
+                    term in player_name_ascii or
+                    player_name_norm.startswith(term) or
+                    player_name_ascii.startswith(term)):
+                    # But avoid matching common words that appear in names accidentally
+                    if term not in ['top', 'best', 'good', 'great', 'big', 'young', 'will', 'can']:
+                        score += 20
+                        is_name_search = True
+                
+                # Position matching with better logic
+                if term in position_mappings:
+                    mapped_positions = position_mappings[term]
+                    if isinstance(mapped_positions, list):
+                        if any(pos in player_position for pos in mapped_positions):
+                            score += 15
+                    elif mapped_positions.upper() in player_position:
+                        score += 15
+                elif term in ['pg', 'sg', 'sf', 'pf'] and term.upper() in player_position:
+                    score += 15
+                elif term == 'c' and player_position == 'C':
                     score += 15
                 
-                # Position matching
-                if term in player.get('position', '').lower():
-                    score += 10
-                elif term == 'pg' and 'point guard' in player.get('position', '').lower():
-                    score += 10
-                elif term == 'sg' and 'shooting guard' in player.get('position', '').lower():
-                    score += 10
-                elif term in ['point', 'guard'] and 'PG' in player.get('position', ''):
-                    score += 8
+                # Team matching with mappings
+                if term in team_mappings:
+                    if team_mappings[term] == player_team:
+                        score += 12
+                elif term in player_team:
+                    score += 12
                 
-                # Team matching
-                if term in player.get('team', '').lower():
-                    score += 8
-                
-                # Draft position semantic understanding
+                # Draft position and ranking queries
                 if term in ['pick', 'draft', 'position', 'number']:
-                    # Look for numbers in the query and match to player rank
-                    import re
-                    numbers = re.findall(r'\d+', query)
+                    # Extract numbers from query
+                    numbers = []
+                    for word in query.split():
+                        try:
+                            num = int(''.join(c for c in word if c.isdigit()))
+                            if num > 0:
+                                numbers.append(num)
+                        except:
+                            continue
+                    
                     if numbers:
-                        target_pick = int(numbers[0])
-                        player_rank = player.get('fantasy_rank', 999)
-                        
-                        # Score based on how close player rank is to target pick
-                        if abs(player_rank - target_pick) <= 5:
-                            score += 20  # Very close match
-                        elif abs(player_rank - target_pick) <= 10:
-                            score += 15  # Close match
-                        elif abs(player_rank - target_pick) <= 15:
-                            score += 10  # Reasonable match
-                        elif abs(player_rank - target_pick) <= 25:
-                            score += 5   # Distant but possible
+                        target_pick = numbers[0]
+                        diff = abs(player_rank - target_pick)
+                        if diff <= 3:
+                            score += 25  # Very close match
+                        elif diff <= 7:
+                            score += 20  # Close match
+                        elif diff <= 15:
+                            score += 15  # Reasonable match
+                        elif diff <= 25:
+                            score += 10  # Distant but possible
                 
-                # Expert analysis and narrative matching
-                if term in player.get('expert_analysis', '').lower():
-                    score += 3
-                if term in player.get('stats_narrative', '').lower():
-                    score += 2
-                
-                # Performance-related terms
-                performance_terms = {
-                    'efficient': player.get('fppm', 0) > 0.8,
-                    'scorer': player.get('fantasy_points', 0) > 20,
-                    'reliable': player.get('fppm', 0) > 0.7,
-                    'upside': player.get('fantasy_rank', 999) > 50,
-                    'sleeper': player.get('fantasy_rank', 999) > 70,
-                    'value': player.get('fppm', 0) > 0.75
-                }
-                
-                if term in performance_terms and performance_terms[term]:
-                    score += 5
+                # Expert analysis and narrative matching (only if not name search)
+                if not is_name_search:
+                    if term in player.get('expert_analysis', '').lower():
+                        score += 3
+                    if term in player.get('stats_narrative', '').lower():
+                        score += 3
             
-            # Add player to results if score is significant
-            if score > 0:
-                results.append({
-                    **player,
-                    '_search_score': score
-                })
+            # Handle special multi-word queries
+            if 'first' in query_lower and 'pick' in query_lower and player_rank == 1:
+                score += 30
+            elif 'first' in query_lower and player_rank == 1:
+                score += 25
+                
+            # Quality descriptors (only for top players to avoid noise)
+            if any(word in query_lower for word in ['best', 'elite', 'top']) and player_rank <= 10:
+                # Extract numbers for "top X" queries
+                for word in query.split():
+                    try:
+                        num = int(''.join(c for c in word if c.isdigit()))
+                        if num > 0 and player_rank <= num:
+                            score += 15
+                            break
+                    except:
+                        continue
+                else:
+                    # No number found, just boost top players
+                    if player_rank <= 5:
+                        score += 12
+            
+            # Add threshold to reduce noise
+            if score >= 3:  # Only include results with meaningful scores
+                player_result = player.copy()
+                player_result['score'] = score
+                results.append(player_result)
         
-        # Sort by relevance score and return top results
-        results.sort(key=lambda x: x['_search_score'], reverse=True)
+        # Sort by score (descending) and limit results
+        results.sort(key=lambda x: x.get('score', 0), reverse=True)
         return results[:num_results]
     
     def get_response(self, query: str) -> str:

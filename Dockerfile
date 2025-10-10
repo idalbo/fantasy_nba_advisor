@@ -21,6 +21,9 @@ COPY streamlit_app.py .
 COPY nba_players_full.json .
 COPY .env .env
 
+# Set PYTHONPATH to include the src directory
+ENV PYTHONPATH="/app/src:${PYTHONPATH}"
+
 # Create necessary directories
 RUN mkdir -p data monitoring evaluation
 

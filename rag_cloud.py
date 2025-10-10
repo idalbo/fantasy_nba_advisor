@@ -145,18 +145,31 @@ class FantasyNBARag:
             return "❌ **Groq API key required**: Please enter your API key in the sidebar to enable AI features."
         
         try:
-            # Enhanced prompt for fantasy basketball
-            system_prompt = """You are an expert fantasy basketball advisor. Provide helpful, detailed advice about fantasy basketball strategy, player analysis, and draft recommendations. 
+            # Get relevant players for context
+            relevant_players = self.search_players(query, 10)
+            
+            # Create context from actual player data
+            player_context = ""
+            if relevant_players:
+                player_context = "\n\nCurrent NBA Player Data (from our database of 450 players):\n"
+                for i, player in enumerate(relevant_players[:8], 1):
+                    player_context += f"{i}. {player.get('name', 'Unknown')} ({player.get('position', '?')}, {player.get('team', '?')}) - Rank #{player.get('fantasy_rank', '?')}, FPPM: {player.get('fppm', 0):.3f}\n"
+            
+            # Enhanced prompt for fantasy basketball with real data
+            system_prompt = f"""You are an expert fantasy basketball advisor with access to current NBA player rankings and statistics from a comprehensive database of 450 NBA players.
 
-Use the following sample data about elite NBA players for context:
-- Nikola Jokić (C, DEN): Rank 1, 1.286 FPPM - Elite center, triple-double threat
-- Giannis Antetokounmpo (PF, MIL): Rank 2, 1.221 FPPM - Dominant two-way player  
-- Shai Gilgeous-Alexander (PG, OKC): Rank 3, 1.129 FPPM - Elite young guard
-- Anthony Davis (PF/C, LAL): Rank 5, 1.069 FPPM - Elite when healthy, injury risk
-- Victor Wembanyama (C, SAS): Rank 6, 1.068 FPPM - Generational rookie talent
-- Luka Dončić (PG, DAL): Rank 7, 1.020 FPPM - Triple-double machine
+CRITICAL INSTRUCTIONS:
+- ONLY use the actual player data provided in the context below
+- NEVER make up rankings, stats, or player information
+- Always reference specific FPPM values and fantasy ranks from the data
+- If asked about draft positions, find players with ranks close to that pick number{player_context}
 
-Focus on Fantasy Points Per Minute (FPPM) as the key efficiency metric. Provide specific, actionable advice."""
+Key Guidelines:
+- Focus on Fantasy Points Per Minute (FPPM) as the primary efficiency metric
+- Consider positional scarcity and team context
+- Provide specific recommendations with actual data
+- Reference exact rankings and stats from the database
+- Be accurate with all numerical information"""
 
             response = self.groq_client.chat.completions.create(
                 model="llama-3.1-8b-instant",
@@ -164,7 +177,7 @@ Focus on Fantasy Points Per Minute (FPPM) as the key efficiency metric. Provide 
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": query}
                 ],
-                temperature=0.7,
+                temperature=0.1,  # Lower temperature for more factual responses
                 max_tokens=1000
             )
             

@@ -145,15 +145,15 @@ class FantasyNBARag:
             return "❌ **Groq API key required**: Please enter your API key in the sidebar to enable AI features."
         
         try:
-            # Get relevant players for context
-            relevant_players = self.search_players(query, 10)
+            # Get relevant players for context (more for draft position queries)
+            relevant_players = self.search_players(query, 15)
             
             # Create context from actual player data
             player_context = ""
             if relevant_players:
                 player_context = "\n\nCurrent NBA Player Data (from our database of 450 players):\n"
-                for i, player in enumerate(relevant_players[:8], 1):
-                    player_context += f"{i}. {player.get('name', 'Unknown')} ({player.get('position', '?')}, {player.get('team', '?')}) - Rank #{player.get('fantasy_rank', '?')}, FPPM: {player.get('fppm', 0):.3f}\n"
+                for i, player in enumerate(relevant_players[:12], 1):
+                    player_context += f"{i}. {player.get('name', 'Unknown')} ({player.get('position', '?')}, {player.get('team', '?')}) - Rank #{player.get('fantasy_rank', '?')}, FPPM: {player.get('fppm', 0):.3f}, FP/G: {player.get('fantasy_points', 0):.1f}\n"
             
             # Enhanced prompt for fantasy basketball with real data
             system_prompt = f"""You are an expert fantasy basketball advisor with access to current NBA player rankings and statistics from a comprehensive database of 450 NBA players.
@@ -162,13 +162,16 @@ CRITICAL INSTRUCTIONS:
 - ONLY use the actual player data provided in the context below
 - NEVER make up rankings, stats, or player information
 - Always reference specific FPPM values and fantasy ranks from the data
-- If asked about draft positions, find players with ranks close to that pick number{player_context}
+- When asked about draft positions (e.g., "pick 78"), recommend players ranked around that position
+- Provide multiple options with their exact ranks, FPPM values, and reasoning{player_context}
 
 Key Guidelines:
 - Focus on Fantasy Points Per Minute (FPPM) as the primary efficiency metric
 - Consider positional scarcity and team context
-- Provide specific recommendations with actual data
+- Provide specific recommendations with actual data from the context
 - Reference exact rankings and stats from the database
+- For draft picks, suggest players ranked within 5 spots of the requested position
+- Compare multiple players and explain their strengths/weaknesses
 - Be accurate with all numerical information"""
 
             response = self.groq_client.chat.completions.create(
@@ -188,14 +191,27 @@ Key Guidelines:
             return f"❌ **Error**: Unable to get AI response. {str(e)}"
     
     def search_players(self, query: str, num_results: int = 5) -> List[Dict[str, Any]]:
-        """Search for players - simplified for cloud mode"""
+        """Search for players - enhanced for cloud mode with draft position handling"""
         if not self.cloud_mode:
             return []
             
-        # Simple keyword matching for demo
         query_lower = query.lower()
         results = []
         
+        # Check if query is asking for a specific draft position/pick number
+        import re
+        pick_match = re.search(r'(?:pick|number|position)\s*(\d+)', query_lower)
+        if pick_match:
+            pick_number = int(pick_match.group(1))
+            # Find players ranked around that pick (±3 positions)
+            target_players = [p for p in self.sample_data 
+                            if abs(p.get('fantasy_rank', 999) - pick_number) <= 5]
+            if target_players:
+                # Sort by how close they are to the target pick
+                target_players.sort(key=lambda x: abs(x.get('fantasy_rank', 999) - pick_number))
+                return target_players[:num_results]
+        
+        # Regular search for player names, positions, teams
         for player in self.sample_data:
             score = 0
             player_text = f"{player['player_name']} {player['position']} {player['team']} {player['stats_narrative']}".lower()

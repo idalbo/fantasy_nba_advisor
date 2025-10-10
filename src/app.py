@@ -39,40 +39,14 @@ logger = logging.getLogger(__name__)
 
 # Import unified modules for consistent functionality
 try:
-    import sys
-    sys.path.append('.')
     from rag_unified import UnifiedFantasyNBARag
     UNIFIED_RAG_AVAILABLE = True
     RETRIEVAL_EVALUATOR_AVAILABLE = True  # Unified system includes evaluation
     logger.info("✅ Using unified RAG system with full evaluation capabilities")
 except ImportError as e:
-    logger.warning(f"Unified RAG not available, falling back: {e}")
-    UNIFIED_RAG_AVAILABLE = False
-    
-    # Fallback imports
-    if CLOUD_MODE:
-        try:
-            from rag_cloud import FantasyNBARag
-            RETRIEVAL_EVALUATOR_AVAILABLE = False
-        except ImportError as e:
-            st.error(f"Cloud deployment error: Unable to import required modules: {e}")
-            st.stop()
-    else:
-        try:
-            src_path = os.path.join(os.path.dirname(__file__), 'src')
-            if src_path not in sys.path:
-                sys.path.insert(0, src_path)
-            
-            from rag import FantasyNBARag
-            from retrieval_evaluator import RetrievalEvaluator
-            RETRIEVAL_EVALUATOR_AVAILABLE = True
-        except ImportError as e:
-            st.error(f"Local deployment error: Unable to import required modules: {e}")
-            st.info("Make sure you're running this from the correct directory with src/ folder available")
-            st.info(f"Current directory: {os.getcwd()}")
-            st.info(f"Available files: {os.listdir('.')}")
-            st.stop()
-logger = logging.getLogger(__name__)
+    st.error(f"❌ Failed to import unified RAG system: {e}")
+    st.info("Please ensure rag_unified.py is available in the src directory")
+    st.stop()
 
 # Page configuration
 st.set_page_config(
@@ -249,29 +223,18 @@ def main():
             
             if st.session_state.rag is None or (hasattr(st.session_state.rag, 'groq_client') and st.session_state.rag.groq_client is None):
                 try:
-                    if UNIFIED_RAG_AVAILABLE:
-                        st.session_state.rag = UnifiedFantasyNBARag(groq_api_key, cloud_mode=CLOUD_MODE)
-                    elif CLOUD_MODE:
-                        st.session_state.rag = FantasyNBARag(groq_api_key, cloud_mode=True)
-                    else:
-                        st.session_state.rag = FantasyNBARag(groq_api_key)
+                    st.session_state.rag = UnifiedFantasyNBARag(groq_api_key)
                     
                     if hasattr(st.session_state.rag, 'groq_client') and st.session_state.rag.groq_client:
                         st.markdown('<div class="api-success">✅ Connected to Fantasy NBA database with AI capabilities!</div>', unsafe_allow_html=True)
-                        if UNIFIED_RAG_AVAILABLE:
-                            st.markdown('<div class="api-success">🚀 Unified system active - Full evaluation capabilities enabled!</div>', unsafe_allow_html=True)
+                        st.markdown('<div class="api-success">🚀 Unified system active - Full evaluation capabilities enabled!</div>', unsafe_allow_html=True)
                     else:
                         st.markdown('<div class="api-warning">⚠️ Invalid API key. Please check your Groq API key.</div>', unsafe_allow_html=True)
                 except Exception as e:
                     st.markdown(f'<div class="api-warning">⚠️ Error connecting: {str(e)}</div>', unsafe_allow_html=True)
         else:
             if st.session_state.rag is None:
-                if UNIFIED_RAG_AVAILABLE:
-                    st.session_state.rag = UnifiedFantasyNBARag(cloud_mode=CLOUD_MODE)
-                elif CLOUD_MODE:
-                    st.session_state.rag = FantasyNBARag(cloud_mode=True)  # Initialize cloud mode without API key
-                else:
-                    st.session_state.rag = FantasyNBARag()  # Initialize without API key
+                st.session_state.rag = UnifiedFantasyNBARag()
             st.markdown('<div class="api-warning">⚠️ Enter Groq API key above for AI-powered responses</div>', unsafe_allow_html=True)
             st.markdown("**Without API key:**")
             st.markdown("- ✅ Browse player statistics")

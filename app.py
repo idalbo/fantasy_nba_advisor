@@ -1,6 +1,6 @@
 """
-Fantasy NBA Advisor - Streamlit App
-Optimized for Streamlit Cloud deployment
+Fantasy NBA Advisor - Unified Streamlit App
+Works seamlessly for both local development and Streamlit Cloud deployment
 """
 
 import streamlit as st
@@ -12,19 +12,52 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Try to import the UnifiedFantasyNBARag from root directory first (Streamlit Cloud)
+# Import unified modules for consistent functionality
+import sys
+import os
+
+# Add multiple path options for robust import
+current_dir = os.path.dirname(os.path.abspath(__file__))
+src_path = os.path.join(current_dir, 'src')
+root_path = current_dir
+
+# Check if we're on Streamlit Cloud (has /mount/src/ in path)
+is_streamlit_cloud = '/mount/src/' in current_dir
+
+# Add paths to sys.path if not already there
+for path in [src_path, root_path]:
+    if path not in sys.path:
+        sys.path.insert(0, path)
+
+# Try importing with detailed error handling
+UnifiedFantasyNBARag = None
+import_success = False
+
 try:
-    from rag_unified_cloud import UnifiedFantasyNBARag
-    logger.info("Successfully imported from root directory (rag_unified_cloud)")
-except ImportError:
+    from rag_unified import UnifiedFantasyNBARag
+    logger.info("✅ Using unified RAG system from src directory")
+    import_success = True
+except ImportError as e1:
+    logger.warning(f"Failed to import from src: {e1}")
     try:
-        # Add src to path for local development
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-        from rag_unified import UnifiedFantasyNBARag
-        logger.info("Successfully imported from src directory")
-    except ImportError as e:
-        st.error(f"Failed to import UnifiedFantasyNBARag: {e}")
+        from rag_unified_cloud import UnifiedFantasyNBARag
+        logger.info("✅ Using unified RAG system from cloud copy")
+        import_success = True
+    except ImportError as e2:
+        logger.error(f"Failed to import from root: {e2}")
+        st.error("❌ Failed to import unified RAG system")
+        st.error(f"Src import error: {e1}")
+        st.error(f"Root import error: {e2}")
+        st.info(f"Current directory: {current_dir}")
+        st.info(f"Is Streamlit Cloud: {is_streamlit_cloud}")
+        st.info(f"Src path exists: {os.path.exists(src_path)}")
+        st.info(f"rag_unified.py exists: {os.path.exists(os.path.join(src_path, 'rag_unified.py'))}")
+        st.info(f"rag_unified_cloud.py exists: {os.path.exists(os.path.join(root_path, 'rag_unified_cloud.py'))}")
         st.stop()
+
+if not import_success or UnifiedFantasyNBARag is None:
+    st.error("❌ UnifiedFantasyNBARag class not properly imported")
+    st.stop()
 
 # Configure Streamlit page
 st.set_page_config(
@@ -34,19 +67,42 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+def get_api_key():
+    """Get API key from user input or environment (for local development)"""
+    # For local development, try environment first
+    env_api_key = os.getenv('GROQ_API_KEY') if not is_streamlit_cloud else None
+    
+    if env_api_key and not is_streamlit_cloud:
+        # Local development with environment variable
+        st.sidebar.success("🔑 Using API key from environment")
+        st.sidebar.info("💡 You can also enter your own API key below to override")
+        
+    # Always show API key input for user override or cloud deployment
+    user_api_key = st.sidebar.text_input(
+        "Groq API Key:",
+        type="password",
+        help="Get your free API key from https://console.groq.com/keys",
+        placeholder="gsk_..." if not env_api_key else "Optional: Override environment key"
+    )
+    
+    # Return user input if provided, otherwise environment key
+    return user_api_key if user_api_key else env_api_key
+
 def main():
     st.title("🏀 Fantasy NBA Advisor")
     st.markdown("---")
     
-    # API Key input section
+    # Sidebar configuration
     st.sidebar.title("⚙️ Configuration")
     
-    # Get API key from user input
-    api_key = st.sidebar.text_input(
-        "Enter your Groq API Key:",
-        type="password",
-        help="Get your free API key from https://console.groq.com/keys"
-    )
+    # Environment info (for debugging)
+    if st.sidebar.checkbox("🔧 Show Debug Info"):
+        st.sidebar.write(f"**Environment:** {'Streamlit Cloud' if is_streamlit_cloud else 'Local'}")
+        st.sidebar.write(f"**Directory:** {current_dir}")
+        st.sidebar.write(f"**Import:** {'✅ Success' if import_success else '❌ Failed'}")
+    
+    # Get API key
+    api_key = get_api_key()
     
     if not api_key:
         st.info("👈 Please enter your Groq API key in the sidebar to start using the Fantasy NBA Advisor")
@@ -59,13 +115,14 @@ def main():
         
         ### Features available:
         - 🔍 Search for NBA players
-        - 📊 Get player statistics and analysis
+        - 📊 Get player statistics and analysis  
         - 🤖 AI-powered fantasy advice
         - 💡 Team composition recommendations
+        - 🏆 Player rankings and analytics
         """)
         return
     
-    # Initialize the RAG system with user's API key
+    # Initialize the RAG system with API key
     if 'rag_system' not in st.session_state or st.session_state.get('current_api_key') != api_key:
         try:
             with st.spinner("Initializing NBA Advisor..."):

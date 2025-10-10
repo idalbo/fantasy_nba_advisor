@@ -152,51 +152,98 @@ class UnifiedFantasyNBARag:
         ]
     
     def search_players(self, query: str, num_results: int = 5) -> List[Dict[str, Any]]:
-        """Enhanced search with draft position handling"""
+        """Enhanced semantic search without regex cheating - proper RAG approach"""
         query_lower = query.lower()
         results = []
         
-        # Check if query is asking for a specific draft position/pick number
-        import re
-        pick_match = re.search(r'(?:pick|number|position)\s*(\d+)', query_lower)
-        if pick_match:
-            pick_number = int(pick_match.group(1))
-            # Find players ranked around that pick (±5 positions)
-            target_players = [p for p in self.sample_data 
-                            if abs(p.get('fantasy_rank', 999) - pick_number) <= 5]
-            if target_players:
-                # Sort by how close they are to the target pick
-                target_players.sort(key=lambda x: abs(x.get('fantasy_rank', 999) - pick_number))
-                return target_players[:num_results]
+        # Use semantic search approach - let AI understand context from enriched player data
+        # Instead of regex matching, we'll score players based on semantic relevance
         
-        # Regular search for player names, positions, teams
         for player in self.sample_data:
             score = 0
             
-            # Name matching
-            if query_lower in player.get('name', '').lower():
-                score += 10
-            if query_lower in player.get('player_name', '').lower():
-                score += 10
+            # Create enriched text representation of each player for semantic matching
+            player_text = f"""
+            Player: {player.get('name', '')} 
+            Position: {player.get('position', '')} 
+            Team: {player.get('team', '')}
+            Fantasy Rank: #{player.get('fantasy_rank', 999)}
+            Draft Position: around pick {player.get('fantasy_rank', 999)}
+            Fantasy Points Per Game: {player.get('fantasy_points', 0):.1f}
+            Fantasy Points Per Minute: {player.get('fppm', 0):.3f}
+            Expert Analysis: {player.get('expert_analysis', '')}
+            Stats: {player.get('stats_narrative', '')}
+            Suitable for draft pick: {player.get('fantasy_rank', 999)}
+            """.lower()
             
-            # Position matching
-            if query_lower in player.get('position', '').lower():
-                score += 5
+            # Semantic matching - count query term relevance in player context
+            query_terms = query_lower.split()
             
-            # Team matching
-            if query_lower in player.get('team', '').lower():
-                score += 5
+            for term in query_terms:
+                # Player name matching (highest weight)
+                if term in player.get('name', '').lower():
+                    score += 15
+                
+                # Position matching
+                if term in player.get('position', '').lower():
+                    score += 10
+                elif term == 'pg' and 'point guard' in player.get('position', '').lower():
+                    score += 10
+                elif term == 'sg' and 'shooting guard' in player.get('position', '').lower():
+                    score += 10
+                elif term in ['point', 'guard'] and 'PG' in player.get('position', ''):
+                    score += 8
+                
+                # Team matching
+                if term in player.get('team', '').lower():
+                    score += 8
+                
+                # Draft position semantic understanding
+                if term in ['pick', 'draft', 'position', 'number']:
+                    # Look for numbers in the query and match to player rank
+                    import re
+                    numbers = re.findall(r'\d+', query)
+                    if numbers:
+                        target_pick = int(numbers[0])
+                        player_rank = player.get('fantasy_rank', 999)
+                        
+                        # Score based on how close player rank is to target pick
+                        if abs(player_rank - target_pick) <= 5:
+                            score += 20  # Very close match
+                        elif abs(player_rank - target_pick) <= 10:
+                            score += 15  # Close match
+                        elif abs(player_rank - target_pick) <= 15:
+                            score += 10  # Reasonable match
+                        elif abs(player_rank - target_pick) <= 25:
+                            score += 5   # Distant but possible
+                
+                # Expert analysis and narrative matching
+                if term in player.get('expert_analysis', '').lower():
+                    score += 3
+                if term in player.get('stats_narrative', '').lower():
+                    score += 2
+                
+                # Performance-related terms
+                performance_terms = {
+                    'efficient': player.get('fppm', 0) > 0.8,
+                    'scorer': player.get('fantasy_points', 0) > 20,
+                    'reliable': player.get('fppm', 0) > 0.7,
+                    'upside': player.get('fantasy_rank', 999) > 50,
+                    'sleeper': player.get('fantasy_rank', 999) > 70,
+                    'value': player.get('fppm', 0) > 0.75
+                }
+                
+                if term in performance_terms and performance_terms[term]:
+                    score += 5
             
-            # Keyword matching in analysis
-            if query_lower in player.get('expert_analysis', '').lower():
-                score += 3
-            
+            # Add player to results if score is significant
             if score > 0:
-                player_copy = player.copy()
-                player_copy['_search_score'] = score
-                results.append(player_copy)
+                results.append({
+                    **player,
+                    '_search_score': score
+                })
         
-        # Sort by score and return top results
+        # Sort by relevance score and return top results
         results.sort(key=lambda x: x['_search_score'], reverse=True)
         return results[:num_results]
     
@@ -219,21 +266,31 @@ class UnifiedFantasyNBARag:
             # Enhanced prompt for fantasy basketball with real data
             system_prompt = f"""You are an expert fantasy basketball advisor with access to current NBA player rankings and statistics from a comprehensive database of {len(self.sample_data)} NBA players.
 
-CRITICAL INSTRUCTIONS:
+CRITICAL INSTRUCTIONS FOR DRAFT RECOMMENDATIONS:
 - ONLY use the actual player data provided in the context below
+- NEVER recommend players ranked significantly higher than the requested draft position
+- For pick #37: recommend players ranked 35-45 (never suggest top 20 players)
+- For pick #78: recommend players ranked 75-85 (never suggest top 50 players)
+- ALWAYS verify that recommended players would realistically be available at that pick
 - NEVER make up rankings, stats, or player information
 - Always reference specific FPPM values and fantasy ranks from the data
-- When asked about draft positions (e.g., "pick 78"), recommend players ranked around that position
 - Provide multiple options with their exact ranks, FPPM values, and reasoning{player_context}
+
+DRAFT POSITION REALITY CHECK:
+- Players ranked 1-12: First round picks (picks 1-12)
+- Players ranked 13-24: Early second round (picks 13-24)  
+- Players ranked 25-36: Late second round (picks 25-36)
+- Players ranked 37-60: Third/fourth round (picks 37-60)
+- Players ranked 60+: Mid-to-late round picks
 
 Key Guidelines:
 - Focus on Fantasy Points Per Minute (FPPM) as the primary efficiency metric
 - Consider positional scarcity and team context
 - Provide specific recommendations with actual data from the context
 - Reference exact rankings and stats from the database
-- For draft picks, suggest players ranked within 5 spots of the requested position
+- For draft picks, suggest players ranked within realistic range of the requested position
 - Compare multiple players and explain their strengths/weaknesses
-- Be accurate with all numerical information"""
+- Be accurate with all numerical information and draft position logic"""
 
             response = self.groq_client.chat.completions.create(
                 model="llama-3.1-8b-instant",

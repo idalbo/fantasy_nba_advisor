@@ -346,12 +346,6 @@ def show_chat_assistant():
                 else:
                     st.write(response)
                 
-                # Show chart if multiple players (but no cards)
-                if len(search_results) > 1:
-                    chart = create_fantasy_points_chart(search_results[:5])
-                    if chart:
-                        st.plotly_chart(chart, use_container_width=True)
-                
                 # Performance metrics
                 st.caption(f"⚡ Response generated in {processing_time:.2f} seconds")
                 

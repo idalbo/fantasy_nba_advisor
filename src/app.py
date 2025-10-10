@@ -41,12 +41,21 @@ logger = logging.getLogger(__name__)
 try:
     from rag_unified import UnifiedFantasyNBARag
     UNIFIED_RAG_AVAILABLE = True
-    RETRIEVAL_EVALUATOR_AVAILABLE = True  # Unified system includes evaluation
     logger.info("✅ Using unified RAG system with full evaluation capabilities")
 except ImportError as e:
     st.error(f"❌ Failed to import unified RAG system: {e}")
     st.info("Please ensure rag_unified.py is available in the src directory")
     st.stop()
+
+# Import evaluation tools for comprehensive testing
+try:
+    from rag import FantasyNBARag
+    from retrieval_evaluator import RetrievalEvaluator
+    FULL_EVALUATION_AVAILABLE = True
+    logger.info("✅ Full evaluation tools available (vector-based RAG + evaluator)")
+except ImportError as e:
+    FULL_EVALUATION_AVAILABLE = False
+    logger.warning(f"Vector-based evaluation tools not available: {e}")
 
 # Page configuration
 st.set_page_config(
@@ -190,13 +199,7 @@ def main():
         
         # Show deployment mode notice
         deployment_info = "🚀 **Fantasy NBA Advisor - Full Featured**\n\nComplete NBA database with 450 players, AI-powered analysis, and comprehensive evaluation tools."
-        
-        if UNIFIED_RAG_AVAILABLE:
-            deployment_info += "\n\n✅ **Unified System Active**\n- Full evaluation capabilities\n- Advanced search and AI features\n- Consistent performance across environments"
-        elif CLOUD_MODE:
-            deployment_info += "\n\n🌐 **Cloud Deployment**\n- Full NBA database and AI analysis\n- Optimized for web performance"
-        else:
-            deployment_info += "\n\n🐳 **Local Docker Mode**\n- Full functionality with vector search\n- Local data processing"
+        deployment_info += "\n\n✅ **Unified System Active**\n- Full evaluation capabilities\n- Advanced search and AI features\n- Consistent performance across environments"
         
         st.success(deployment_info)
         
@@ -520,7 +523,7 @@ def show_system_evaluation():
     st.header("🔬 System Evaluation")
     
     # Check if we have the unified system with full evaluation capabilities
-    if UNIFIED_RAG_AVAILABLE and st.session_state.rag:
+    if st.session_state.rag:
         st.subheader("🚀 Full System Evaluation - Unified Platform")
         
         # Get system stats
@@ -788,8 +791,86 @@ def show_system_evaluation():
         
         return
     
-    # Fallback to basic evaluation if unified system not available
-    elif CLOUD_MODE or not RETRIEVAL_EVALUATOR_AVAILABLE:
+    # Advanced evaluation with vector-based RAG (if available)
+    elif FULL_EVALUATION_AVAILABLE:
+        st.subheader("🔬 Advanced Vector-Based Evaluation")
+        st.info("**Enhanced Evaluation Mode**: Vector database and advanced evaluation tools detected!")
+        
+        # Initialize evaluator  
+        if 'evaluator' not in st.session_state:
+            try:
+                # Create a vector-based RAG instance for evaluation
+                vector_rag = FantasyNBARag()
+                if hasattr(vector_rag, 'qdrant_client'):
+                    st.session_state.evaluator = RetrievalEvaluator(vector_rag.qdrant_client)
+                    st.success("✅ Advanced evaluator initialized with vector database")
+                else:
+                    st.warning("⚠️ Vector database not available - using standard evaluation")
+                    return
+            except Exception as e:
+                st.error(f"Failed to initialize advanced evaluator: {e}")
+                return
+        
+        evaluator = st.session_state.evaluator
+        
+        # Advanced evaluation controls
+        st.subheader("🧪 Advanced Evaluation Suite")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("🔤 Evaluate Embedding Models", key="eval_embeddings"):
+                with st.spinner("Testing embedding models..."):
+                    embedding_results = evaluator.evaluate_embedding_models()
+                    st.session_state.embedding_evaluation = embedding_results
+        
+        with col2:
+            if st.button("🔍 Evaluate Retrieval Methods", key="eval_retrieval"):
+                with st.spinner("Testing retrieval approaches..."):
+                    retrieval_results = evaluator.evaluate_retrieval_methods()
+                    st.session_state.retrieval_evaluation = retrieval_results
+        
+        with col3:
+            if st.button("⚡ Evaluate Fusion & Reranking", key="eval_fusion"):
+                with st.spinner("Testing fusion and reranking..."):
+                    fusion_results = evaluator.evaluate_fusion_and_reranking()
+                    st.session_state.fusion_evaluation = fusion_results
+        
+        # Display advanced evaluation results
+        if hasattr(st.session_state, 'embedding_evaluation'):
+            st.subheader("🔤 Embedding Model Results")
+            embedding_data = st.session_state.embedding_evaluation
+            if embedding_data:
+                df_models = pd.DataFrame.from_dict(embedding_data, orient='index')
+                st.dataframe(df_models)
+                if evaluator.best_embedding_model:
+                    st.success(f"🏆 **Best Model:** {evaluator.best_embedding_model}")
+        
+        if hasattr(st.session_state, 'retrieval_evaluation'):
+            st.subheader("🔍 Retrieval Method Results")
+            retrieval_data = st.session_state.retrieval_evaluation
+            if retrieval_data:
+                methods = list(retrieval_data.keys())
+                f1_scores = [retrieval_data[method]['avg_f1_score'] for method in methods]
+                response_times = [retrieval_data[method]['avg_response_time'] for method in methods]
+                
+                fig = go.Figure()
+                fig.add_trace(go.Bar(x=methods, y=f1_scores, name='F1 Score', yaxis='y1'))
+                fig.add_trace(go.Scatter(x=methods, y=response_times, mode='lines+markers', 
+                                       name='Response Time (s)', yaxis='y2'))
+                fig.update_layout(
+                    title="Advanced Retrieval Method Comparison",
+                    yaxis=dict(title="F1 Score", side="left"),
+                    yaxis2=dict(title="Response Time (s)", side="right", overlaying="y")
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                if evaluator.best_retrieval_method:
+                    st.success(f"🏆 **Best Method:** {evaluator.best_retrieval_method}")
+        
+        return
+
+def show_system_information():
         st.subheader("🌐 Cloud System Evaluation")
         
         # Real-time system health check
@@ -976,151 +1057,6 @@ def show_system_evaluation():
         """)
         
         return
-    
-    st.write("Comprehensive evaluation of retrieval approaches, embedding models, and system performance.")
-    
-    # Initialize evaluator  
-    if 'evaluator' not in st.session_state:
-        if hasattr(st.session_state.rag, 'qdrant_client'):
-            st.session_state.evaluator = RetrievalEvaluator(st.session_state.rag.qdrant_client)
-        else:
-            st.error("Cannot initialize evaluator - RAG system not available")
-            return
-    
-    evaluator = st.session_state.evaluator
-    
-    # Evaluation controls
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("🔤 Evaluate Embedding Models"):
-            with st.spinner("Testing embedding models..."):
-                embedding_results = evaluator.evaluate_embedding_models()
-                st.session_state.embedding_evaluation = embedding_results
-    
-    with col2:
-        if st.button("🔍 Evaluate Retrieval Methods"):
-            with st.spinner("Testing retrieval approaches..."):
-                retrieval_results = evaluator.evaluate_retrieval_methods()
-                st.session_state.retrieval_evaluation = retrieval_results
-    
-    with col3:
-        if st.button("⚡ Evaluate Fusion & Reranking"):
-            with st.spinner("Testing fusion and reranking..."):
-                fusion_results = evaluator.evaluate_fusion_and_reranking()
-                st.session_state.fusion_evaluation = fusion_results
-    
-    # Display embedding model evaluation
-    if hasattr(st.session_state, 'embedding_evaluation'):
-        st.subheader("🔤 Embedding Model Evaluation Results")
-        embedding_data = st.session_state.embedding_evaluation
-        
-        if embedding_data:
-            # Create DataFrame for display
-            df_models = pd.DataFrame.from_dict(embedding_data, orient='index')
-            st.dataframe(df_models)
-            
-            # Best model highlight
-            if evaluator.best_embedding_model:
-                st.success(f"🏆 **Best Embedding Model:** {evaluator.best_embedding_model}")
-                st.write(f"**Chosen for:** High relevance score and good performance on fantasy basketball queries")
-    
-    # Display retrieval method evaluation
-    if hasattr(st.session_state, 'retrieval_evaluation'):
-        st.subheader("🔍 Retrieval Method Evaluation Results")
-        retrieval_data = st.session_state.retrieval_evaluation
-        
-        if retrieval_data:
-            # Create comparison chart
-            methods = list(retrieval_data.keys())
-            f1_scores = [retrieval_data[method]['avg_f1_score'] for method in methods]
-            response_times = [retrieval_data[method]['avg_response_time'] for method in methods]
-            
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                x=methods,
-                y=f1_scores,
-                name='F1 Score',
-                yaxis='y1'
-            ))
-            fig.add_trace(go.Scatter(
-                x=methods,
-                y=response_times,
-                mode='lines+markers',
-                name='Response Time (s)',
-                yaxis='y2'
-            ))
-            
-            fig.update_layout(
-                title="Retrieval Method Comparison",
-                xaxis_title="Method",
-                yaxis=dict(title="F1 Score", side="left"),
-                yaxis2=dict(title="Response Time (s)", side="right", overlaying="y"),
-                legend=dict(x=0.7, y=1)
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Best method highlight
-            if evaluator.best_retrieval_method:
-                st.success(f"🏆 **Best Retrieval Method:** {evaluator.best_retrieval_method}")
-                st.write(f"**Chosen for:** Optimal balance of precision, recall, and response time")
-            
-            # Detailed metrics
-            st.subheader("📊 Detailed Metrics")
-            for method, metrics in retrieval_data.items():
-                with st.expander(f"{method.replace('_', ' ').title()} Details"):
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Avg Precision", f"{metrics['avg_precision']:.3f}")
-                    with col2:
-                        st.metric("Avg Recall", f"{metrics['avg_recall']:.3f}")
-                    with col3:
-                        st.metric("Avg F1 Score", f"{metrics['avg_f1_score']:.3f}")
-                    with col4:
-                        st.metric("Avg Response Time", f"{metrics['avg_response_time']:.3f}s")
-                    
-                    st.metric("Avg Cosine Similarity", f"{metrics['avg_cosine_similarity']:.3f}")
-    
-    # Display fusion and reranking evaluation
-    if hasattr(st.session_state, 'fusion_evaluation'):
-        st.subheader("⚡ Fusion & Reranking Evaluation Results")
-        fusion_data = st.session_state.fusion_evaluation
-        
-        if fusion_data:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.write("**Fusion Methods**")
-                fusion_methods = fusion_data['fusion_methods']
-                fusion_df = pd.DataFrame.from_dict(fusion_methods, orient='index')
-                st.dataframe(fusion_df)
-            
-            with col2:
-                st.write("**Reranking Methods**")
-                rerank_methods = fusion_data['reranking_methods']
-                rerank_df = pd.DataFrame.from_dict(rerank_methods, orient='index')
-                st.dataframe(rerank_df)
-            
-            # Best combination
-            if 'best_combination' in fusion_data:
-                best_combo = fusion_data['best_combination']
-                st.success(f"🏆 **Best Combination:** {best_combo['fusion']} + {best_combo['reranking']}")
-                st.metric("Combined Score", f"{best_combo['combined_score']:.3f}")
-    
-    # Test queries section
-    st.subheader("🧪 Test Queries & Expected Results")
-    test_queries = evaluator.get_test_queries_and_expected_results()
-    
-    for i, test_case in enumerate(test_queries, 1):
-        with st.expander(f"Test Case {i}: {test_case['query']}"):
-            st.write(f"**Query:** {test_case['query']}")
-            if 'expected_players' in test_case:
-                st.write(f"**Expected Players:** {', '.join(test_case['expected_players'])}")
-            if 'min_fppm' in test_case:
-                st.write(f"**Minimum FPPM:** {test_case['min_fppm']}")
-            if 'expected_positions' in test_case:
-                st.write(f"**Expected Positions:** {', '.join(test_case['expected_positions'])}")
 
 def show_system_information():
     """Show comprehensive system information and configuration"""

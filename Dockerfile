@@ -17,7 +17,8 @@ RUN pip install --no-cache-dir -r requirements_docker.txt
 
 # Copy the application code
 COPY src/ ./src/
-COPY streamlit_app.py .
+COPY app.py .
+COPY rag_unified_cloud.py .
 COPY nba_players_full.json .
 COPY .env .env
 
@@ -31,4 +32,4 @@ RUN mkdir -p data monitoring evaluation
 EXPOSE 8501
 
 # Default command (can be overridden by docker-compose)
-CMD ["streamlit", "run", "streamlit_app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
+CMD ["streamlit", "run", "app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]

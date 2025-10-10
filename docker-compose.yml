@@ -37,7 +37,7 @@ services:
         echo '📊 Ingesting NBA data...' &&
         python -c 'import sys; sys.path.append(\"src\"); from data_ingestion import DataIngestion; DataIngestion().run_ingestion()' &&
         echo '🚀 Starting Streamlit app...' &&
-        streamlit run src/app.py --server.address 0.0.0.0 --server.port 8501
+        streamlit run app.py --server.address 0.0.0.0 --server.port 8501
       "
 
 volumes:

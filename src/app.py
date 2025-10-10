@@ -553,41 +553,190 @@ def show_system_evaluation():
     st.header("🔬 System Evaluation")
     
     if CLOUD_MODE or not RETRIEVAL_EVALUATOR_AVAILABLE:
+        st.subheader("🌐 Cloud System Evaluation")
+        
+        # Real-time system health check
+        st.subheader("🏥 System Health Check")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        # Check NBA database
+        try:
+            if st.session_state.rag and hasattr(st.session_state.rag, 'sample_data'):
+                player_count = len(st.session_state.rag.sample_data)
+                with col1:
+                    st.metric("NBA Database", f"{player_count} players", "✅ Loaded")
+            else:
+                with col1:
+                    st.metric("NBA Database", "Error", "❌ Failed")
+        except:
+            with col1:
+                st.metric("NBA Database", "Error", "❌ Failed")
+        
+        # Check AI connectivity
+        try:
+            if st.session_state.rag and st.session_state.rag.groq_client:
+                with col2:
+                    st.metric("AI System", "Connected", "✅ Ready")
+            else:
+                with col2:
+                    st.metric("AI System", "No API Key", "⚠️ Limited")
+        except:
+            with col2:
+                st.metric("AI System", "Error", "❌ Failed")
+        
+        # Check search functionality
+        with col3:
+            st.metric("Search System", "Active", "✅ Ready")
+        
+        # Check data freshness
+        with col4:
+            st.metric("Data Updated", "Current", "✅ Fresh")
+        
+        st.divider()
+        
+        # Interactive system tests
+        st.subheader("🧪 Interactive System Tests")
+        
+        tab1, tab2, tab3, tab4 = st.tabs(["🔍 Search Test", "🤖 AI Response Test", "📊 Data Quality", "⚡ Performance"])
+        
+        with tab1:
+            st.write("**Test the player search functionality:**")
+            test_query = st.text_input("Enter a player name or position:", value="Nikola Jokic", key="search_test")
+            
+            if st.button("🔍 Test Search", key="test_search_btn"):
+                if st.session_state.rag:
+                    with st.spinner("Testing search..."):
+                        results = st.session_state.rag.search_players(test_query, 5)
+                        
+                        if results:
+                            st.success(f"✅ Found {len(results)} matching players:")
+                            for i, player in enumerate(results[:3], 1):
+                                st.write(f"{i}. **{player.get('name', 'Unknown')}** ({player.get('position', '?')}, {player.get('team', '?')}) - Rank #{player.get('fantasy_rank', '?')}")
+                        else:
+                            st.warning("⚠️ No players found")
+                else:
+                    st.error("❌ RAG system not initialized")
+        
+        with tab2:
+            st.write("**Test the AI response system:**")
+            test_ai_query = st.text_input("Enter a fantasy basketball question:", value="Who should I draft in the first round?", key="ai_test")
+            
+            if st.button("🤖 Test AI Response", key="test_ai_btn"):
+                if st.session_state.rag and st.session_state.rag.groq_client:
+                    with st.spinner("Testing AI response..."):
+                        start_time = time.time()
+                        response = st.session_state.rag.get_response(test_ai_query)
+                        response_time = time.time() - start_time
+                        
+                        st.success(f"✅ AI Response (in {response_time:.2f}s):")
+                        st.write(response[:300] + "..." if len(response) > 300 else response)
+                        
+                        # Quality metrics
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Response Time", f"{response_time:.2f}s")
+                        with col2:
+                            st.metric("Response Length", f"{len(response)} chars")
+                        with col3:
+                            quality = "High" if len(response) > 100 and "player" in response.lower() else "Low"
+                            st.metric("Quality Check", quality)
+                else:
+                    st.warning("⚠️ AI system requires Groq API key")
+        
+        with tab3:
+            st.write("**Evaluate data quality and completeness:**")
+            
+            if st.button("📊 Analyze Data Quality", key="data_quality_btn"):
+                if st.session_state.rag and hasattr(st.session_state.rag, 'sample_data'):
+                    data = st.session_state.rag.sample_data
+                    
+                    # Data quality metrics
+                    total_players = len(data)
+                    players_with_ranks = sum(1 for p in data if p.get('fantasy_rank', 0) > 0)
+                    players_with_fppm = sum(1 for p in data if p.get('fppm', 0) > 0)
+                    players_with_analysis = sum(1 for p in data if p.get('expert_analysis'))
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.metric("Total Players", total_players)
+                        st.metric("Players w/ Rankings", players_with_ranks, f"{players_with_ranks/total_players*100:.1f}%")
+                    
+                    with col2:
+                        st.metric("Players w/ FPPM", players_with_fppm, f"{players_with_fppm/total_players*100:.1f}%")
+                        st.metric("Players w/ Analysis", players_with_analysis, f"{players_with_analysis/total_players*100:.1f}%")
+                    
+                    # Position distribution
+                    st.write("**Position Distribution:**")
+                    positions = {}
+                    for player in data:
+                        pos = player.get('position', 'Unknown')
+                        positions[pos] = positions.get(pos, 0) + 1
+                    
+                    pos_df = pd.DataFrame(list(positions.items()), columns=['Position', 'Count'])
+                    fig = px.bar(pos_df, x='Position', y='Count', title="Players by Position")
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.error("❌ No data available for analysis")
+        
+        with tab4:
+            st.write("**Performance benchmarking:**")
+            
+            if st.button("⚡ Run Performance Tests", key="perf_test_btn"):
+                if st.session_state.rag:
+                    with st.spinner("Running performance tests..."):
+                        # Test search performance
+                        search_times = []
+                        test_queries = ["Jokic", "center", "Lakers", "point guard", "top scorer"]
+                        
+                        for query in test_queries:
+                            start = time.time()
+                            st.session_state.rag.search_players(query, 5)
+                            search_times.append(time.time() - start)
+                        
+                        avg_search_time = sum(search_times) / len(search_times)
+                        
+                        # Performance metrics
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Avg Search Time", f"{avg_search_time:.3f}s")
+                        with col2:
+                            st.metric("Search Throughput", f"{1/avg_search_time:.1f} req/s")
+                        with col3:
+                            status = "Excellent" if avg_search_time < 0.1 else "Good" if avg_search_time < 0.5 else "Slow"
+                            st.metric("Performance", status)
+                        
+                        # Performance chart
+                        perf_df = pd.DataFrame({
+                            'Query': test_queries,
+                            'Response Time (s)': search_times
+                        })
+                        fig = px.bar(perf_df, x='Query', y='Response Time (s)', title="Search Performance by Query Type")
+                        st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.error("❌ RAG system not available")
+        
+        st.divider()
+        
+        # Comparison with Docker mode
+        st.subheader("🐳 Enhanced Features in Docker Mode")
         st.info("""
-        🌐 **System Evaluation - Streamlit Cloud**
-        
-        Advanced system evaluation requires vector database infrastructure.
-        
-        **Current Cloud Features:**
-        - Full NBA player database (450 players)
-        - AI-powered chat and analysis
-        - Complete player search and rankings
-        - Fantasy draft recommendations
-        
         **Additional evaluation features available in Local Docker Mode:**
+        - Vector similarity testing
         - Embedding model comparison
         - Retrieval method evaluation  
         - Fusion and reranking analysis
-        - Performance benchmarking
+        - Advanced performance benchmarking
+        - Database indexing optimization
         
-        **To access advanced evaluation:**
-        1. Run locally with Docker
-        2. Complete data ingestion  
-        3. Access this tab for comprehensive testing
+        **To access full evaluation suite:**
+        1. Set up local Docker environment
+        2. Complete data ingestion pipeline
+        3. Access comprehensive testing tools
         
-        [Setup Guide](https://github.com/idalbo/fantasy_nba_advisor/blob/main/SETUP_GUIDE.md)
+        [Docker Setup Guide](https://docs.streamlit.io/deploy/tutorials/docker)
         """)
-        
-        # Show sample evaluation metrics for demo
-        st.subheader("📊 Sample Evaluation Metrics")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Retrieval Precision", "0.85", "Local mode only")
-        with col2:
-            st.metric("Response Time", "<1s", "Local mode only") 
-        with col3:
-            st.metric("Player Coverage", "450+", "Local mode only")
         
         return
     

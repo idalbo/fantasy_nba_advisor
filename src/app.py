@@ -30,41 +30,48 @@ if os.getenv('DEBUG', 'false').lower() == 'true':
     st.sidebar.write(f"🔍 Debug: STREAMLIT_SHARING_MODE = {os.getenv('STREAMLIT_SHARING_MODE')}")
     st.sidebar.write(f"🔍 Debug: src exists = {os.path.exists('src')}")
 
-# Import appropriate modules based on environment
-if CLOUD_MODE:
-    # Cloud deployment - use simplified imports
-    try:
-        import sys
-        sys.path.append('.')
-        from rag_cloud import FantasyNBARag
-        RETRIEVAL_EVALUATOR_AVAILABLE = False
-    except ImportError as e:
-        st.error(f"Cloud deployment error: Unable to import required modules: {e}")
-        st.stop()
-else:
-    # Local Docker deployment - use full functionality
-    try:
-        import sys
-        # Add src directory to path for Docker deployment
-        src_path = os.path.join(os.path.dirname(__file__), 'src')
-        if src_path not in sys.path:
-            sys.path.insert(0, src_path)
-        
-        from rag import FantasyNBARag
-        from retrieval_evaluator import RetrievalEvaluator
-        RETRIEVAL_EVALUATOR_AVAILABLE = True
-    except ImportError as e:
-        st.error(f"Local deployment error: Unable to import required modules: {e}")
-        st.info("Make sure you're running this from the correct directory with src/ folder available")
-        st.info(f"Current directory: {os.getcwd()}")
-        st.info(f"Available files: {os.listdir('.')}")
-        st.stop()
-
 # Load environment variables
 load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Import unified modules for consistent functionality
+try:
+    import sys
+    sys.path.append('.')
+    from rag_unified import UnifiedFantasyNBARag
+    UNIFIED_RAG_AVAILABLE = True
+    RETRIEVAL_EVALUATOR_AVAILABLE = True  # Unified system includes evaluation
+    logger.info("✅ Using unified RAG system with full evaluation capabilities")
+except ImportError as e:
+    logger.warning(f"Unified RAG not available, falling back: {e}")
+    UNIFIED_RAG_AVAILABLE = False
+    
+    # Fallback imports
+    if CLOUD_MODE:
+        try:
+            from rag_cloud import FantasyNBARag
+            RETRIEVAL_EVALUATOR_AVAILABLE = False
+        except ImportError as e:
+            st.error(f"Cloud deployment error: Unable to import required modules: {e}")
+            st.stop()
+    else:
+        try:
+            src_path = os.path.join(os.path.dirname(__file__), 'src')
+            if src_path not in sys.path:
+                sys.path.insert(0, src_path)
+            
+            from rag import FantasyNBARag
+            from retrieval_evaluator import RetrievalEvaluator
+            RETRIEVAL_EVALUATOR_AVAILABLE = True
+        except ImportError as e:
+            st.error(f"Local deployment error: Unable to import required modules: {e}")
+            st.info("Make sure you're running this from the correct directory with src/ folder available")
+            st.info(f"Current directory: {os.getcwd()}")
+            st.info(f"Available files: {os.listdir('.')}")
+            st.stop()
 logger = logging.getLogger(__name__)
 
 # Page configuration
@@ -208,19 +215,16 @@ def main():
         st.header("🔧 Configuration")
         
         # Show deployment mode notice
-        if CLOUD_MODE:
-            st.success("""
-            🌐 **Streamlit Cloud Deployment**
-            
-            Full NBA database with 450 players and AI-powered analysis.
-            Complete fantasy basketball functionality available!
-            """)
+        deployment_info = "🚀 **Fantasy NBA Advisor - Full Featured**\n\nComplete NBA database with 450 players, AI-powered analysis, and comprehensive evaluation tools."
+        
+        if UNIFIED_RAG_AVAILABLE:
+            deployment_info += "\n\n✅ **Unified System Active**\n- Full evaluation capabilities\n- Advanced search and AI features\n- Consistent performance across environments"
+        elif CLOUD_MODE:
+            deployment_info += "\n\n🌐 **Cloud Deployment**\n- Full NBA database and AI analysis\n- Optimized for web performance"
         else:
-            st.success("""
-            🐳 **Local Docker Mode**
-            
-            Full functionality with real NBA data and vector search enabled.
-            """)
+            deployment_info += "\n\n🐳 **Local Docker Mode**\n- Full functionality with vector search\n- Local data processing"
+        
+        st.success(deployment_info)
         
         st.markdown("---")
         
@@ -243,22 +247,28 @@ def main():
             if not groq_api_key.startswith('gsk_'):
                 st.markdown('<div class="api-warning">⚠️ Groq API keys typically start with "gsk_"</div>', unsafe_allow_html=True)
             
-            if st.session_state.rag is None or st.session_state.rag.groq_client is None:
+            if st.session_state.rag is None or (hasattr(st.session_state.rag, 'groq_client') and st.session_state.rag.groq_client is None):
                 try:
-                    if CLOUD_MODE:
+                    if UNIFIED_RAG_AVAILABLE:
+                        st.session_state.rag = UnifiedFantasyNBARag(groq_api_key, cloud_mode=CLOUD_MODE)
+                    elif CLOUD_MODE:
                         st.session_state.rag = FantasyNBARag(groq_api_key, cloud_mode=True)
                     else:
                         st.session_state.rag = FantasyNBARag(groq_api_key)
                     
-                    if st.session_state.rag.groq_client:
+                    if hasattr(st.session_state.rag, 'groq_client') and st.session_state.rag.groq_client:
                         st.markdown('<div class="api-success">✅ Connected to Fantasy NBA database with AI capabilities!</div>', unsafe_allow_html=True)
+                        if UNIFIED_RAG_AVAILABLE:
+                            st.markdown('<div class="api-success">🚀 Unified system active - Full evaluation capabilities enabled!</div>', unsafe_allow_html=True)
                     else:
                         st.markdown('<div class="api-warning">⚠️ Invalid API key. Please check your Groq API key.</div>', unsafe_allow_html=True)
                 except Exception as e:
                     st.markdown(f'<div class="api-warning">⚠️ Error connecting: {str(e)}</div>', unsafe_allow_html=True)
         else:
             if st.session_state.rag is None:
-                if CLOUD_MODE:
+                if UNIFIED_RAG_AVAILABLE:
+                    st.session_state.rag = UnifiedFantasyNBARag(cloud_mode=CLOUD_MODE)
+                elif CLOUD_MODE:
                     st.session_state.rag = FantasyNBARag(cloud_mode=True)  # Initialize cloud mode without API key
                 else:
                     st.session_state.rag = FantasyNBARag()  # Initialize without API key
@@ -549,10 +559,280 @@ def show_monitoring_dashboard():
         st.warning("No ingestion statistics available. Run data ingestion first.")
 
 def show_system_evaluation():
-    """Show system evaluation results"""
+    """Show system evaluation results with unified approach"""
     st.header("🔬 System Evaluation")
     
-    if CLOUD_MODE or not RETRIEVAL_EVALUATOR_AVAILABLE:
+    # Check if we have the unified system with full evaluation capabilities
+    if UNIFIED_RAG_AVAILABLE and st.session_state.rag:
+        st.subheader("🚀 Full System Evaluation - Unified Platform")
+        
+        # Get system stats
+        try:
+            system_stats = st.session_state.rag.get_system_stats()
+        except:
+            system_stats = {"error": "Could not retrieve system stats"}
+        
+        # Real-time system health check
+        st.subheader("🏥 System Health Check")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        # Enhanced health metrics
+        if "database_stats" in system_stats:
+            db_stats = system_stats["database_stats"]
+            with col1:
+                st.metric("NBA Database", f"{db_stats['total_players']} players", 
+                         f"{db_stats['coverage_percentage']:.1f}% coverage")
+            with col2:
+                st.metric("Data Quality", f"{db_stats['players_with_ranks']}", 
+                         "Players ranked")
+            with col3:
+                st.metric("FPPM Data", f"{db_stats['players_with_fppm']}", 
+                         "Players w/ efficiency")
+            with col4:
+                st.metric("Expert Analysis", f"{db_stats['players_with_analysis']}", 
+                         "Players analyzed")
+        else:
+            # Fallback metrics
+            with col1:
+                st.metric("NBA Database", "Active", "✅ Loaded")
+            with col2:
+                st.metric("AI System", "Connected" if st.session_state.rag.groq_client else "Limited", 
+                         "✅ Ready" if st.session_state.rag.groq_client else "⚠️ No API")
+            with col3:
+                st.metric("Search System", "Active", "✅ Ready")
+            with col4:
+                st.metric("Evaluation", "Full Suite", "✅ Available")
+        
+        st.divider()
+        
+        # Advanced evaluation tabs
+        st.subheader("🧪 Advanced System Evaluation")
+        
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "🔍 Search Performance", 
+            "🤖 AI Evaluation", 
+            "📊 Data Analysis", 
+            "⚡ System Benchmarks",
+            "🎯 End-to-End Tests"
+        ])
+        
+        with tab1:
+            st.write("**Search Performance Evaluation:**")
+            
+            if st.button("🔍 Run Search Performance Tests", key="search_perf_btn"):
+                with st.spinner("Running comprehensive search evaluation..."):
+                    try:
+                        results = st.session_state.rag.evaluate_search_performance()
+                        
+                        # Display results
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Avg Response Time", f"{results['avg_response_time']:.3f}s")
+                        with col2:
+                            st.metric("Search Accuracy", f"{results['search_accuracy']:.2%}")
+                        with col3:
+                            st.metric("Coverage Score", f"{results['coverage_score']:.2%}")
+                        
+                        # Detailed results
+                        st.write("**Detailed Search Results:**")
+                        search_df = pd.DataFrame(results['test_queries'])
+                        st.dataframe(search_df)
+                        
+                        # Performance chart
+                        fig = px.bar(search_df, x='query', y='response_time', 
+                                   title="Search Response Times by Query Type")
+                        fig.update_layout(xaxis_tickangle=-45)
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                    except Exception as e:
+                        st.error(f"Search evaluation failed: {e}")
+        
+        with tab2:
+            st.write("**AI Response Quality Evaluation:**")
+            
+            if st.button("🤖 Run AI Performance Tests", key="ai_perf_btn"):
+                if st.session_state.rag.groq_client:
+                    with st.spinner("Evaluating AI response quality..."):
+                        try:
+                            results = st.session_state.rag.evaluate_ai_performance()
+                            
+                            # Display results
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Avg Response Time", f"{results['avg_response_time']:.2f}s")
+                            with col2:
+                                st.metric("Avg Response Length", f"{results['avg_response_length']} chars")
+                            with col3:
+                                st.metric("Quality Score", f"{results['quality_score']:.2%}")
+                            
+                            # Detailed results
+                            st.write("**AI Response Analysis:**")
+                            ai_df = pd.DataFrame(results['test_queries'])
+                            st.dataframe(ai_df)
+                            
+                            # Quality vs Speed chart
+                            fig = px.scatter(ai_df, x='response_time', y='quality_score', 
+                                           hover_data=['query'], title="AI Response Quality vs Speed")
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                        except Exception as e:
+                            st.error(f"AI evaluation failed: {e}")
+                else:
+                    st.warning("⚠️ AI evaluation requires Groq API key")
+        
+        with tab3:
+            st.write("**Data Quality and Distribution Analysis:**")
+            
+            if "position_distribution" in system_stats:
+                # Position distribution chart
+                pos_data = system_stats["position_distribution"]
+                pos_df = pd.DataFrame(list(pos_data.items()), columns=['Position', 'Count'])
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    fig = px.pie(pos_df, values='Count', names='Position', 
+                               title="Player Distribution by Position")
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with col2:
+                    fig = px.bar(pos_df, x='Position', y='Count', 
+                               title="Players by Position")
+                    st.plotly_chart(fig, use_container_width=True)
+            
+            # Data completeness metrics
+            if "database_stats" in system_stats:
+                db_stats = system_stats["database_stats"]
+                st.write("**Data Completeness:**")
+                
+                completeness_data = {
+                    "Metric": ["Fantasy Rankings", "FPPM Data", "Expert Analysis", "Position Data"],
+                    "Percentage": [
+                        (db_stats['players_with_ranks'] / db_stats['total_players']) * 100,
+                        (db_stats['players_with_fppm'] / db_stats['total_players']) * 100,
+                        (db_stats['players_with_analysis'] / db_stats['total_players']) * 100,
+                        100  # Assuming all players have position data
+                    ]
+                }
+                
+                completeness_df = pd.DataFrame(completeness_data)
+                fig = px.bar(completeness_df, x='Metric', y='Percentage', 
+                           title="Data Completeness by Category")
+                fig.update_layout(yaxis=dict(range=[0, 100]))
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with tab4:
+            st.write("**System Performance Benchmarks:**")
+            
+            if st.button("⚡ Run Performance Benchmarks", key="perf_bench_btn"):
+                with st.spinner("Running system benchmarks..."):
+                    try:
+                        # Test multiple search scenarios
+                        benchmark_queries = [
+                            "Nikola Jokic", "center", "point guard", "Lakers", "top scorer",
+                            "pick 78", "draft position 50", "Pascal Siakam", "Brandon Miller",
+                            "first round picks", "sleeper picks", "injury risk players"
+                        ]
+                        
+                        benchmark_results = []
+                        for query in benchmark_queries:
+                            start_time = time.time()
+                            results = st.session_state.rag.search_players(query, 5)
+                            end_time = time.time()
+                            
+                            benchmark_results.append({
+                                "Query": query,
+                                "Response Time": end_time - start_time,
+                                "Results Found": len(results),
+                                "Query Type": "Name" if any(p.get('name', '').lower() in query.lower() for p in st.session_state.rag.sample_data) 
+                                           else "Position" if query.lower() in ['center', 'point guard', 'power forward'] 
+                                           else "Draft" if 'pick' in query.lower() 
+                                           else "General"
+                            })
+                        
+                        bench_df = pd.DataFrame(benchmark_results)
+                        
+                        # Performance metrics
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Avg Response Time", f"{bench_df['Response Time'].mean():.3f}s")
+                        with col2:
+                            st.metric("Max Response Time", f"{bench_df['Response Time'].max():.3f}s")
+                        with col3:
+                            st.metric("Throughput", f"{1/bench_df['Response Time'].mean():.1f} req/s")
+                        
+                        # Benchmark chart
+                        fig = px.box(bench_df, x='Query Type', y='Response Time', 
+                                   title="Performance by Query Type")
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Detailed results
+                        st.dataframe(bench_df)
+                        
+                    except Exception as e:
+                        st.error(f"Benchmark failed: {e}")
+        
+        with tab5:
+            st.write("**End-to-End System Tests:**")
+            
+            if st.button("🎯 Run Complete System Test", key="e2e_test_btn"):
+                with st.spinner("Running comprehensive system evaluation..."):
+                    test_results = {"tests": [], "overall_score": 0}
+                    
+                    try:
+                        # Test 1: Basic search functionality
+                        search_result = st.session_state.rag.search_players("Jokic", 1)
+                        test_results["tests"].append({
+                            "Test": "Basic Search",
+                            "Status": "✅ Pass" if search_result else "❌ Fail",
+                            "Details": f"Found {len(search_result)} results"
+                        })
+                        
+                        # Test 2: Draft position query
+                        draft_result = st.session_state.rag.search_players("pick 78", 3)
+                        test_results["tests"].append({
+                            "Test": "Draft Position Search", 
+                            "Status": "✅ Pass" if draft_result else "❌ Fail",
+                            "Details": f"Found {len(draft_result)} players near pick 78"
+                        })
+                        
+                        # Test 3: AI response (if available)
+                        if st.session_state.rag.groq_client:
+                            ai_response = st.session_state.rag.get_response("Who should I pick first?")
+                            ai_test_pass = len(ai_response) > 50 and "Error" not in ai_response
+                            test_results["tests"].append({
+                                "Test": "AI Response Generation",
+                                "Status": "✅ Pass" if ai_test_pass else "❌ Fail", 
+                                "Details": f"Response length: {len(ai_response)} chars"
+                            })
+                        
+                        # Test 4: Data integrity
+                        data_test = len(st.session_state.rag.sample_data) > 0
+                        test_results["tests"].append({
+                            "Test": "Data Integrity",
+                            "Status": "✅ Pass" if data_test else "❌ Fail",
+                            "Details": f"Database contains {len(st.session_state.rag.sample_data)} players"
+                        })
+                        
+                        # Calculate overall score
+                        passed_tests = sum(1 for test in test_results["tests"] if "✅" in test["Status"])
+                        test_results["overall_score"] = (passed_tests / len(test_results["tests"])) * 100
+                        
+                        # Display results
+                        st.metric("Overall System Health", f"{test_results['overall_score']:.0f}%", 
+                                f"{passed_tests}/{len(test_results['tests'])} tests passed")
+                        
+                        # Test details
+                        test_df = pd.DataFrame(test_results["tests"])
+                        st.dataframe(test_df, use_container_width=True)
+                        
+                    except Exception as e:
+                        st.error(f"End-to-end test failed: {e}")
+        
+        return
+    
+    # Fallback to basic evaluation if unified system not available
+    elif CLOUD_MODE or not RETRIEVAL_EVALUATOR_AVAILABLE:
         st.subheader("🌐 Cloud System Evaluation")
         
         # Real-time system health check

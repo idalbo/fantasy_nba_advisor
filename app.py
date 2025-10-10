@@ -231,6 +231,9 @@ def show_player_search():
     # Search input
     search_query = st.text_input("Search for NBA players:", placeholder="e.g., LeBron James, Nikola Jokic")
     
+    # Add debug mode
+    debug_mode = st.checkbox("🔧 Debug Search Results")
+    
     if search_query:
         # Track search
         st.session_state.usage_stats['searches'] += 1
@@ -239,34 +242,96 @@ def show_player_search():
             # Search for players
             results = st.session_state.rag_system.search_players(search_query)
             
+            if debug_mode:
+                st.write(f"**Debug: Raw search results for '{search_query}':**")
+                st.json(results[:3] if results else [])
+            
             if results:
                 st.success(f"Found {len(results)} players matching '{search_query}':")
                 
                 # Display results
                 for i, player in enumerate(results[:10]):  # Show top 10 results
-                    with st.expander(f"{i+1}. {player.get('name', 'Unknown')} - {player.get('team', 'N/A')}"):
+                    name = player.get('name', 'Unknown')
+                    team = player.get('team', 'N/A') 
+                    position = player.get('position', 'N/A')
+                    
+                    with st.expander(f"{i+1}. {name} - {team} ({position})"):
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            st.write(f"**Position:** {player.get('position', 'N/A')}")
-                            st.write(f"**Team:** {player.get('team', 'N/A')}")
+                            st.write(f"**Position:** {position}")
+                            st.write(f"**Team:** {team}")
+                            
+                            # Show available stats
+                            available_stats = []
+                            for stat_field in ['ppg', 'rpg', 'apg', 'points_per_game', 'rebounds_per_game', 'assists_per_game']:
+                                if stat_field in player and player[stat_field] not in [None, 'N/A', '']:
+                                    available_stats.append(f"{stat_field}: {player[stat_field]}")
+                            
+                            if available_stats:
+                                st.write("**Available Stats:**")
+                                for stat in available_stats:
+                                    st.write(f"• {stat}")
+                            else:
+                                st.write("**Available Stats:** None in standard format")
                         
                         with col2:
-                            st.write(f"**PPG:** {player.get('ppg', 'N/A')}")
-                            st.write(f"**RPG:** {player.get('rpg', 'N/A')}")
-                            st.write(f"**APG:** {player.get('apg', 'N/A')}")
+                            # Try to show stats in multiple formats
+                            ppg = None
+                            rpg = None 
+                            apg = None
+                            
+                            # Try different field names
+                            for field in ['ppg', 'points_per_game', 'scoring']:
+                                if field in player and player[field] not in [None, 'N/A', '']:
+                                    ppg = player[field]
+                                    break
+                                    
+                            for field in ['rpg', 'rebounds_per_game', 'rebounding']:
+                                if field in player and player[field] not in [None, 'N/A', '']:
+                                    rpg = player[field]
+                                    break
+                                    
+                            for field in ['apg', 'assists_per_game', 'playmaking']:
+                                if field in player and player[field] not in [None, 'N/A', '']:
+                                    apg = player[field]
+                                    break
+                            
+                            st.write(f"**PPG:** {ppg if ppg is not None else 'Not available'}")
+                            st.write(f"**RPG:** {rpg if rpg is not None else 'Not available'}")
+                            st.write(f"**APG:** {apg if apg is not None else 'Not available'}")
+                            
+                            # Show other available fields
+                            if debug_mode:
+                                st.write("**All fields:**")
+                                for key, value in player.items():
+                                    if value not in [None, 'N/A', '']:
+                                        st.write(f"• {key}: {value}")
                         
-                        if st.button(f"Get AI Analysis for {player.get('name', 'Player')}", key=f"analyze_{i}"):
+                        if st.button(f"Get AI Analysis for {name}", key=f"analyze_{i}"):
                             # Track AI request
                             st.session_state.usage_stats['ai_requests'] += 1
                             
-                            with st.spinner("Analyzing player..."):
-                                analysis = st.session_state.rag_system.get_response(f"Give me a detailed fantasy analysis of {player.get('name', 'this player')}")
+                            with st.spinner(f"Analyzing {name}..."):
+                                # More specific query to avoid weird draft recommendations
+                                analysis_query = f"Give me a detailed fantasy basketball analysis of {name}. Focus on their current performance, strengths, weaknesses, and fantasy value. Do not provide draft recommendations unless specifically about this individual player."
+                                analysis = st.session_state.rag_system.get_response(analysis_query)
                                 st.write(analysis)
             else:
                 st.warning(f"No players found matching '{search_query}'. Try a different search term.")
+                
+                if debug_mode:
+                    st.write("**Debug: Search troubleshooting**")
+                    st.write(f"• Query processed: '{search_query}'")
+                    st.write(f"• Total players in database: {len(st.session_state.rag_system.sample_data)}")
+                    if st.session_state.rag_system.sample_data:
+                        sample_names = [p.get('name', 'No name') for p in st.session_state.rag_system.sample_data[:10]]
+                        st.write(f"• Sample player names: {sample_names}")
+                
         except Exception as e:
             st.error(f"Error searching for players: {e}")
+            if debug_mode:
+                st.exception(e)
 
 def show_player_rankings():
     """Show player rankings"""
@@ -276,98 +341,133 @@ def show_player_rankings():
         # Get players from the system
         all_players = st.session_state.rag_system.sample_data if st.session_state.rag_system.sample_data else []
         
-        if all_players:
-            # Sort players by a fantasy score (PPG + RPG + APG for simplicity)
-            ranked_players = []
-            for player in all_players:
-                ppg = player.get('ppg', 0) if isinstance(player.get('ppg'), (int, float)) else 0
-                rpg = player.get('rpg', 0) if isinstance(player.get('rpg'), (int, float)) else 0
-                apg = player.get('apg', 0) if isinstance(player.get('apg'), (int, float)) else 0
-                
+        if not all_players:
+            st.error("❌ No player data available. Please check system initialization.")
+            st.info("The system needs to load NBA player data to show rankings.")
+            return
+            
+        st.info(f"📊 Analyzing {len(all_players)} players from the database...")
+        
+        # Filter and rank players with actual statistics
+        ranked_players = []
+        for player in all_players:
+            # Extract numeric stats, handling different data formats
+            ppg = 0
+            rpg = 0 
+            apg = 0
+            
+            # Handle different possible field names and formats
+            for ppg_field in ['ppg', 'points_per_game', 'scoring']:
+                if ppg_field in player:
+                    val = player[ppg_field]
+                    if isinstance(val, (int, float)) and val > 0:
+                        ppg = float(val)
+                        break
+                        
+            for rpg_field in ['rpg', 'rebounds_per_game', 'rebounding']:
+                if rpg_field in player:
+                    val = player[rpg_field]
+                    if isinstance(val, (int, float)) and val > 0:
+                        rpg = float(val)
+                        break
+                        
+            for apg_field in ['apg', 'assists_per_game', 'playmaking']:
+                if apg_field in player:
+                    val = player[apg_field]
+                    if isinstance(val, (int, float)) and val > 0:
+                        apg = float(val)
+                        break
+            
+            # Calculate fantasy score (only for players with actual stats)
+            if ppg > 0 or rpg > 0 or apg > 0:
                 fantasy_score = ppg + rpg + apg
-                if fantasy_score > 0:  # Only include players with stats
-                    ranked_players.append({
-                        'name': player.get('name', 'Unknown'),
-                        'team': player.get('team', 'N/A'),
-                        'position': player.get('position', 'N/A'),
-                        'ppg': ppg,
-                        'rpg': rpg,
-                        'apg': apg,
-                        'fantasy_score': fantasy_score
-                    })
+                ranked_players.append({
+                    'name': player.get('name', 'Unknown'),
+                    'team': player.get('team', 'N/A'),
+                    'position': player.get('position', 'N/A'),
+                    'ppg': ppg,
+                    'rpg': rpg,
+                    'apg': apg,
+                    'fantasy_score': fantasy_score
+                })
+        
+        if not ranked_players:
+            st.warning("⚠️ No players found with statistical data in the current dataset.")
+            st.info("This could mean:")
+            st.info("• Player data is still loading")
+            st.info("• Statistical fields are in a different format")
+            st.info("• Database needs to be populated with current season stats")
             
-            # Sort by fantasy score
-            ranked_players.sort(key=lambda x: x['fantasy_score'], reverse=True)
+            # Debug: Show sample of raw data structure
+            if st.checkbox("🔧 Show data structure for debugging"):
+                if all_players:
+                    st.write("**Sample player data structure:**")
+                    sample_player = all_players[0]
+                    st.json(sample_player)
+                    
+                    # Show all available fields
+                    st.write("**Available fields in player data:**")
+                    fields = list(sample_player.keys())
+                    st.write(fields)
+            return
             
-            if ranked_players:
-                st.write(f"**Top {min(20, len(ranked_players))} Fantasy Basketball Players:**")
-                
-                # Create ranking table
-                ranking_data = []
-                for i, player in enumerate(ranked_players[:20], 1):
-                    ranking_data.append({
+        # Sort by fantasy score
+        ranked_players.sort(key=lambda x: x['fantasy_score'], reverse=True)
+        
+        st.success(f"✅ Found {len(ranked_players)} players with statistics!")
+        st.write(f"**Top {min(20, len(ranked_players))} Fantasy Basketball Players:**")
+        
+        # Create ranking table
+        ranking_data = []
+        for i, player in enumerate(ranked_players[:20], 1):
+            ranking_data.append({
+                "Rank": i,
+                "Player": player['name'],
+                "Team": player['team'],
+                "Position": player['position'],
+                "PPG": round(player['ppg'], 1) if player['ppg'] > 0 else '-',
+                "RPG": round(player['rpg'], 1) if player['rpg'] > 0 else '-',
+                "APG": round(player['apg'], 1) if player['apg'] > 0 else '-',
+                "Fantasy Score": round(player['fantasy_score'], 1)
+            })
+        
+        st.dataframe(ranking_data, use_container_width=True)
+        
+        # Position filter
+        st.subheader("📊 Filter by Position")
+        
+        # Get available positions
+        available_positions = set(p['position'] for p in ranked_players if p['position'] != 'N/A')
+        position_options = ["All"] + sorted(list(available_positions))
+        
+        position = st.selectbox("Select Position:", position_options)
+        
+        if position != "All":
+            filtered_players = [p for p in ranked_players if p['position'] == position]
+            if filtered_players:
+                st.write(f"**Top {position} Players:**")
+                filtered_data = []
+                for i, player in enumerate(filtered_players[:10], 1):
+                    filtered_data.append({
                         "Rank": i,
                         "Player": player['name'],
                         "Team": player['team'],
-                        "Position": player['position'],
-                        "PPG": player['ppg'],
-                        "RPG": player['rpg'],
-                        "APG": player['apg'],
+                        "PPG": round(player['ppg'], 1) if player['ppg'] > 0 else '-',
+                        "RPG": round(player['rpg'], 1) if player['rpg'] > 0 else '-',
+                        "APG": round(player['apg'], 1) if player['apg'] > 0 else '-',
                         "Fantasy Score": round(player['fantasy_score'], 1)
                     })
-                
-                st.dataframe(ranking_data, use_container_width=True)
-                
-                # Position filter
-                st.subheader("📊 Filter by Position")
-                position = st.selectbox("Select Position:", ["All", "PG", "SG", "SF", "PF", "C"])
-                
-                if position != "All":
-                    filtered_players = [p for p in ranked_players if p['position'] == position]
-                    if filtered_players:
-                        st.write(f"**Top {position} Players:**")
-                        filtered_data = []
-                        for i, player in enumerate(filtered_players[:10], 1):
-                            filtered_data.append({
-                                "Rank": i,
-                                "Player": player['name'],
-                                "Team": player['team'],
-                                "PPG": player['ppg'],
-                                "RPG": player['rpg'],
-                                "APG": player['apg']
-                            })
-                        st.dataframe(filtered_data, use_container_width=True)
-                    else:
-                        st.warning(f"No {position} players found in the rankings.")
+                st.dataframe(filtered_data, use_container_width=True)
             else:
-                st.warning("No player statistics available for ranking. Using fallback data.")
-                show_fallback_rankings()
-        else:
-            st.warning("No player data loaded. Using fallback rankings.")
-            show_fallback_rankings()
+                st.warning(f"No {position} players found in the rankings.")
             
     except Exception as e:
-        st.error(f"Error loading player rankings: {e}")
-        show_fallback_rankings()
+        st.error(f"❌ Error loading player rankings: {e}")
+        st.info("Please check that the system is properly initialized with player data.")
 
 def show_fallback_rankings():
-    """Show fallback rankings when data is not available"""
-    st.info("📊 Showing sample NBA player rankings:")
-    
-    fallback_data = [
-        {"Rank": 1, "Player": "Nikola Jokić", "Team": "DEN", "Position": "C", "PPG": 24.5, "RPG": 11.8, "APG": 9.8},
-        {"Rank": 2, "Player": "Luka Dončić", "Team": "DAL", "Position": "PG", "PPG": 32.4, "RPG": 8.6, "APG": 8.0},
-        {"Rank": 3, "Player": "Joel Embiid", "Team": "PHI", "Position": "C", "PPG": 33.1, "RPG": 10.2, "APG": 4.2},
-        {"Rank": 4, "Player": "Giannis Antetokounmpo", "Team": "MIL", "Position": "PF", "PPG": 31.1, "RPG": 11.8, "APG": 5.7},
-        {"Rank": 5, "Player": "Jayson Tatum", "Team": "BOS", "Position": "SF", "PPG": 30.1, "RPG": 8.8, "APG": 4.9},
-        {"Rank": 6, "Player": "Shai Gilgeous-Alexander", "Team": "OKC", "Position": "PG", "PPG": 31.4, "RPG": 4.8, "APG": 5.5},
-        {"Rank": 7, "Player": "Damian Lillard", "Team": "MIL", "Position": "PG", "PPG": 24.3, "RPG": 4.4, "APG": 7.0},
-        {"Rank": 8, "Player": "Anthony Davis", "Team": "LAL", "Position": "PF", "PPG": 25.9, "RPG": 12.5, "APG": 2.6},
-        {"Rank": 9, "Player": "LeBron James", "Team": "LAL", "Position": "SF", "PPG": 25.7, "RPG": 7.3, "APG": 8.3},
-        {"Rank": 10, "Player": "Stephen Curry", "Team": "GSW", "Position": "PG", "PPG": 26.4, "RPG": 4.5, "APG": 5.1}
-    ]
-    
-    st.dataframe(fallback_data, use_container_width=True)
+    """Remove this function - no more fallbacks allowed"""
+    pass
 
 def show_analytics():
     """Show analytics and statistics"""
@@ -400,11 +500,19 @@ def show_analytics():
         with tab1:
             st.write("**Top Scorers:**")
             try:
-                # Get actual player data from the system
+                # Get actual player data from the system - no fallbacks
                 top_scorers = []
-                for player in st.session_state.rag_system.sample_data[:50]:  # Check first 50 players
-                    ppg = player.get('ppg', 0)
-                    if ppg and ppg != 'N/A' and isinstance(ppg, (int, float)) and ppg > 25:
+                for player in st.session_state.rag_system.sample_data[:100]:  # Check more players
+                    ppg = 0
+                    # Try different possible field names for scoring
+                    for field in ['ppg', 'points_per_game', 'scoring']:
+                        if field in player:
+                            val = player.get(field, 0)
+                            if isinstance(val, (int, float)) and val > 0:
+                                ppg = float(val)
+                                break
+                    
+                    if ppg > 20:  # Only high scorers
                         top_scorers.append((player.get('name', 'Unknown'), ppg))
                 
                 # Sort by PPG and take top 5
@@ -412,79 +520,70 @@ def show_analytics():
                 
                 if top_scorers:
                     for i, (name, ppg) in enumerate(top_scorers[:5], 1):
-                        st.write(f"{i}. {name} - {ppg} PPG")
+                        st.write(f"{i}. {name} - {ppg:.1f} PPG")
                 else:
-                    # Fallback to known top scorers
-                    fallback_scorers = [
-                        ("Luka Dončić", 32.4),
-                        ("Joel Embiid", 31.1),
-                        ("Damian Lillard", 30.0),
-                        ("Shai Gilgeous-Alexander", 29.8),
-                        ("Jayson Tatum", 28.9)
-                    ]
-                    for i, (name, ppg) in enumerate(fallback_scorers, 1):
-                        st.write(f"{i}. {name} - {ppg} PPG")
+                    st.warning("❌ No scoring data available in current dataset")
+                    st.info("Check that player statistics are properly loaded")
             except Exception as e:
-                st.write("Top scoring leaders data temporarily unavailable")
-                logger.error(f"Error getting top scorers: {e}")
+                st.error(f"Error loading scoring data: {e}")
         
         with tab2:
             st.write("**Top Rebounders:**")
             try:
-                # Get actual rebounding data
+                # Get actual rebounding data - no fallbacks
                 top_rebounders = []
-                for player in st.session_state.rag_system.sample_data[:50]:
-                    rpg = player.get('rpg', 0)
-                    if rpg and rpg != 'N/A' and isinstance(rpg, (int, float)) and rpg > 10:
+                for player in st.session_state.rag_system.sample_data[:100]:
+                    rpg = 0
+                    # Try different possible field names for rebounding
+                    for field in ['rpg', 'rebounds_per_game', 'rebounding']:
+                        if field in player:
+                            val = player.get(field, 0)
+                            if isinstance(val, (int, float)) and val > 0:
+                                rpg = float(val)
+                                break
+                    
+                    if rpg > 8:  # Only strong rebounders
                         top_rebounders.append((player.get('name', 'Unknown'), rpg))
                 
                 top_rebounders.sort(key=lambda x: x[1], reverse=True)
                 
                 if top_rebounders:
                     for i, (name, rpg) in enumerate(top_rebounders[:5], 1):
-                        st.write(f"{i}. {name} - {rpg} RPG")
+                        st.write(f"{i}. {name} - {rpg:.1f} RPG")
                 else:
-                    # Fallback data
-                    fallback_rebounders = [
-                        ("Nikola Jokić", 12.8),
-                        ("Domantas Sabonis", 12.3),
-                        ("Joel Embiid", 11.8),
-                        ("Giannis Antetokounmpo", 11.8),
-                        ("Anthony Davis", 11.5)
-                    ]
-                    for i, (name, rpg) in enumerate(fallback_rebounders, 1):
-                        st.write(f"{i}. {name} - {rpg} RPG")
+                    st.warning("❌ No rebounding data available in current dataset")
+                    st.info("Check that player statistics are properly loaded")
             except Exception as e:
-                st.write("Rebounding leaders data temporarily unavailable")
+                st.error(f"Error loading rebounding data: {e}")
         
         with tab3:
             st.write("**Top Playmakers:**")
             try:
-                # Get actual assists data  
+                # Get actual assists data - no fallbacks
                 top_assists = []
-                for player in st.session_state.rag_system.sample_data[:50]:
-                    apg = player.get('apg', 0)
-                    if apg and apg != 'N/A' and isinstance(apg, (int, float)) and apg > 7:
+                for player in st.session_state.rag_system.sample_data[:100]:
+                    apg = 0
+                    # Try different possible field names for assists
+                    for field in ['apg', 'assists_per_game', 'playmaking']:
+                        if field in player:
+                            val = player.get(field, 0)
+                            if isinstance(val, (int, float)) and val > 0:
+                                apg = float(val)
+                                break
+                    
+                    if apg > 5:  # Only good playmakers
                         top_assists.append((player.get('name', 'Unknown'), apg))
                 
                 top_assists.sort(key=lambda x: x[1], reverse=True)
                 
                 if top_assists:
                     for i, (name, apg) in enumerate(top_assists[:5], 1):
-                        st.write(f"{i}. {name} - {apg} APG")
+                        st.write(f"{i}. {name} - {apg:.1f} APG")
                 else:
-                    # Fallback data
-                    fallback_assists = [
-                        ("Tyrese Haliburton", 10.9),
-                        ("Trae Young", 10.8),
-                        ("Chris Paul", 8.9),
-                        ("Luka Dončić", 8.2),
-                        ("Nikola Jokić", 8.0)
-                    ]
-                    for i, (name, apg) in enumerate(fallback_assists, 1):
-                        st.write(f"{i}. {name} - {apg} APG")
+                    st.warning("❌ No assists data available in current dataset")
+                    st.info("Check that player statistics are properly loaded")
             except Exception as e:
-                st.write("Assist leaders data temporarily unavailable")
+                st.error(f"Error loading assists data: {e}")
         
         st.divider()
         

@@ -24,7 +24,7 @@ class FantasyNBARag:
         # Initialize embedding model
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
         
-        # Initialize Groq client - prioritize passed API key over environment
+        # Initialize Groq client with cloud compatibility
         self.groq_client = None
         api_key_to_use = None
         
@@ -32,8 +32,13 @@ class FantasyNBARag:
             # User provided API key takes priority
             api_key_to_use = groq_api_key
         else:
-            # Fall back to environment key only if no user key provided
-            api_key_to_use = os.getenv('GROQ_API_KEY')
+            # Try Streamlit secrets first (for cloud deployment), then environment
+            try:
+                import streamlit as st
+                api_key_to_use = st.secrets.get("GROQ_API_KEY") or os.getenv('GROQ_API_KEY')
+            except:
+                # Fall back to environment key if streamlit not available
+                api_key_to_use = os.getenv('GROQ_API_KEY')
         
         if api_key_to_use:
             try:
@@ -880,3 +885,78 @@ Player {i}: {result['name']} ({result['position']}, {result['team']})
                 'starting_factor': 0,
                 'minutes_factor': 0
             }
+    
+    # Adapter methods for app.py compatibility
+    def search_players(self, query: str, num_results: int = 5) -> List[Dict[str, Any]]:
+        """
+        Adapter method to maintain compatibility with app.py
+        Maps to the vector search method
+        """
+        return self.search(query, num_results)
+    
+    def get_response(self, query: str) -> str:
+        """
+        Adapter method to maintain compatibility with app.py
+        Maps to the RAG method and returns just the response text
+        """
+        try:
+            response, _ = self.rag(query)
+            return response
+        except Exception as e:
+            logger.error(f"Error getting response: {e}")
+            return f"Sorry, I encountered an error processing your request: {e}"
+    
+    @property 
+    def sample_data(self) -> List[Dict[str, Any]]:
+        """
+        Adapter property for compatibility with analytics
+        Retrieves sample data from vector database for analytics display
+        """
+        try:
+            # Get all points from the collection to provide data for analytics
+            collection_info = self.qdrant_client.get_collection("nba_players")
+            if collection_info.points_count > 0:
+                # Retrieve a sample of players for analytics (limit to avoid performance issues)
+                search_result = self.qdrant_client.scroll(
+                    collection_name="nba_players",
+                    limit=100,  # Get top 100 players for analytics
+                    with_payload=True,
+                    with_vectors=False
+                )
+                
+                # Extract player data from Qdrant format
+                players = []
+                for point in search_result[0]:  # search_result is (points, next_page_offset)
+                    if point.payload:
+                        # Add necessary fields for analytics compatibility
+                        player_data = point.payload.copy()
+                        
+                        # Ensure required fields exist for analytics
+                        if 'name' not in player_data and 'player_name' in player_data:
+                            player_data['name'] = player_data['player_name']
+                        
+                        # Map vector DB fields to expected analytics fields
+                        if 'fantasy_points_per_game' in player_data:
+                            player_data['fantasy_points'] = player_data['fantasy_points_per_game']
+                        
+                        players.append(player_data)
+                
+                logger.info(f"Retrieved {len(players)} players from vector database for analytics")
+                return players
+            else:
+                logger.warning("No players found in vector database")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error retrieving sample data from vector database: {e}")
+            # Return minimal fallback data to prevent analytics from breaking
+            return [
+                {
+                    "name": "No Data Available",
+                    "fantasy_points": 0,
+                    "fppm": 0,
+                    "fantasy_rank": 999,
+                    "team": "N/A",
+                    "position": "N/A"
+                }
+            ]

@@ -22,7 +22,7 @@ make ingest-data    # First time only (ingests NBA data)
 make project-run    # Starts the application
 
 # 4. Access the application
-open http://localhost:8501
+open http://localhost:8504
 ```
 
 ## 💻 System Requirements
@@ -92,11 +92,11 @@ make project-run
 
 This starts:
 - Qdrant vector database (if not already running)
-- Streamlit web application on port 8501
+- Streamlit web application on port 8504
 
 ### Step 4: Access and Configure
 
-1. **Open your browser** to [http://localhost:8501](http://localhost:8501)
+1. **Open your browser** to [http://localhost:8504](http://localhost:8504)
 
 2. **Enter your Groq API key** in the sidebar
    - The application works without an API key for browsing data

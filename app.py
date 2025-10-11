@@ -35,26 +35,26 @@ for path in [src_path, root_path]:
     if path not in sys.path:
         sys.path.insert(0, path)
 
-# Try importing the unified RAG system
-UnifiedFantasyNBARag = None
+# Try importing the vector-based RAG system
+FantasyNBARag = None
 import_success = False
 
 try:
-    from src.rag_unified import UnifiedFantasyNBARag
-    logger.info("✅ Using unified RAG system")
+    from rag import FantasyNBARag
+    logger.info("✅ Using vector-based RAG system")
     import_success = True
 except ImportError as e:
-    logger.error(f"❌ Failed to import unified RAG system: {e}")
-    st.error("❌ Failed to import unified RAG system")
+    logger.error(f"❌ Failed to import vector-based RAG system: {e}")
+    st.error("❌ Failed to import vector-based RAG system")
     st.error(f"Import error: {e}")
     st.info(f"Current directory: {current_dir}")
     st.info(f"Is Streamlit Cloud: {is_streamlit_cloud}")
     st.info(f"Src path exists: {os.path.exists(src_path)}")
-    st.info(f"rag_unified.py exists: {os.path.exists(os.path.join(src_path, 'rag_unified.py'))}")
+    st.info(f"rag.py exists: {os.path.exists(os.path.join(src_path, 'rag.py'))}")
     st.stop()
 
-if not import_success or UnifiedFantasyNBARag is None:
-    st.error("❌ UnifiedFantasyNBARag class not properly imported")
+if not import_success or FantasyNBARag is None:
+    st.error("❌ FantasyNBARag class not properly imported")
     st.stop()
 
 # Configure Streamlit page
@@ -123,13 +123,13 @@ def main():
     # Initialize the RAG system with API key
     if 'rag_system' not in st.session_state or st.session_state.get('current_api_key') != api_key:
         try:
-            with st.spinner("Initializing NBA Advisor..."):
-                st.session_state.rag_system = UnifiedFantasyNBARag(groq_api_key=api_key)
+            with st.spinner("Initializing NBA Vector Search System..."):
+                st.session_state.rag_system = FantasyNBARag(groq_api_key=api_key)
                 st.session_state.current_api_key = api_key
-            st.success("✅ NBA Advisor initialized successfully!")
+            st.success("✅ NBA Vector Search System initialized successfully!")
         except Exception as e:
-            st.error(f"❌ Failed to initialize NBA Advisor: {e}")
-            st.info("Please check your API key and try again")
+            st.error(f"❌ Failed to initialize NBA Vector Search System: {e}")
+            st.info("Please check your API key and Qdrant connection")
             return
     
     # Sidebar navigation

@@ -18,7 +18,6 @@ RUN pip install --no-cache-dir -r requirements_docker.txt
 # Copy the application code
 COPY src/ ./src/
 COPY app.py .
-COPY rag_unified_cloud.py .
 COPY nba_players_full.json .
 COPY .env .env
 

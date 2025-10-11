@@ -22,10 +22,6 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Import unified modules for consistent functionality
-import sys
-import os
-
 # Add multiple path options for robust import
 current_dir = os.path.dirname(os.path.abspath(__file__))
 src_path = os.path.join(current_dir, 'src')
@@ -44,7 +40,7 @@ UnifiedFantasyNBARag = None
 import_success = False
 
 try:
-    from rag_unified import UnifiedFantasyNBARag
+    from src.rag_unified import UnifiedFantasyNBARag
     logger.info("✅ Using unified RAG system")
     import_success = True
 except ImportError as e:

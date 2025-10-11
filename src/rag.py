@@ -1,4 +1,5 @@
 import os
+import json
 import unicodedata
 import re
 from qdrant_client import QdrantClient
@@ -15,11 +16,8 @@ logger = logging.getLogger(__name__)
 
 class FantasyNBARag:
     def __init__(self, groq_api_key: str = None):
-        self.qdrant_host = os.getenv('QDRANT_HOST', 'localhost')
-        self.qdrant_port = int(os.getenv('QDRANT_PORT', 6333))
-        
-        # Initialize Qdrant client
-        self.qdrant_client = QdrantClient(host=self.qdrant_host, port=self.qdrant_port)
+        # Initialize Qdrant client with in-memory mode for cloud deployment
+        self._init_qdrant_client()
         
         # Initialize embedding model
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -49,7 +47,121 @@ class FantasyNBARag:
                 self.groq_client = None
         else:
             logger.warning("No Groq API key provided. AI features will be disabled.")
+        
+        # Load data into Qdrant
+        self._load_data_to_qdrant()
+    
+    def _init_qdrant_client(self):
+        """Initialize Qdrant client with in-memory mode for cloud deployment"""
+        try:
+            # Check if we're in a cloud environment (no local Qdrant available)
+            try:
+                import streamlit as st
+                is_cloud = True
+                logger.info("🌐 Detected Streamlit Cloud environment")
+            except:
+                is_cloud = False
             
+            # Try local Qdrant first (for Docker/local development)
+            if not is_cloud:
+                try:
+                    self.qdrant_host = os.getenv('QDRANT_HOST', 'localhost')
+                    self.qdrant_port = int(os.getenv('QDRANT_PORT', 6333))
+                    self.qdrant_client = QdrantClient(host=self.qdrant_host, port=self.qdrant_port)
+                    # Test connection
+                    self.qdrant_client.get_collections()
+                    logger.info(f"� Using local Qdrant at {self.qdrant_host}:{self.qdrant_port}")
+                    return
+                except Exception as e:
+                    logger.warning(f"Local Qdrant not available: {e}")
+            
+            # Fall back to in-memory Qdrant for cloud deployment
+            logger.info("☁️ Using in-memory Qdrant for cloud deployment")
+            self.qdrant_client = QdrantClient(":memory:")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize Qdrant client: {e}")
+            raise Exception(f"Could not initialize Qdrant database: {e}")
+    
+    def _load_data_to_qdrant(self):
+        """Load NBA player data into Qdrant collection"""
+        try:
+            # Check if collection already exists
+            collections = self.qdrant_client.get_collections().collections
+            if any(collection.name == "nba_players" for collection in collections):
+                logger.info("✅ NBA players collection already exists")
+                return
+            
+            # Create collection
+            from qdrant_client.models import Distance, VectorParams
+            self.qdrant_client.create_collection(
+                collection_name="nba_players",
+                vectors_config=VectorParams(size=384, distance=Distance.COSINE),
+            )
+            logger.info("🏗️ Created NBA players collection")
+            
+            # Load player data from JSON file
+            player_data = self._load_player_data()
+            if not player_data:
+                logger.error("No player data available to load")
+                return
+            
+            # Create embeddings and upload to Qdrant
+            from qdrant_client.models import PointStruct
+            points = []
+            
+            for i, player in enumerate(player_data):
+                # Create searchable text
+                text = f"{player.get('player_name', '')} {player.get('position', '')} {player.get('team', '')} "
+                text += f"{player.get('expert_analysis', '')} {player.get('stats_narrative', '')}"
+                
+                # Create embedding
+                embedding = self.embedding_model.encode(text).tolist()
+                
+                # Create point
+                points.append(PointStruct(
+                    id=i,
+                    vector=embedding,
+                    payload=player
+                ))
+                
+                # Upload in batches to avoid memory issues
+                if len(points) >= 100:
+                    self.qdrant_client.upsert(
+                        collection_name="nba_players",
+                        points=points
+                    )
+                    points = []
+                    logger.info(f"📊 Uploaded {i+1} players...")
+            
+            # Upload remaining points
+            if points:
+                self.qdrant_client.upsert(
+                    collection_name="nba_players",
+                    points=points
+                )
+            
+            logger.info(f"✅ Successfully loaded {len(player_data)} players into Qdrant")
+            
+        except Exception as e:
+            logger.error(f"Failed to load data to Qdrant: {e}")
+            raise Exception(f"Could not load player data: {e}")
+    
+    def _load_player_data(self):
+        """Load NBA player data from JSON file"""
+        try:
+            # Try to load the full dataset
+            if os.path.exists('nba_players_full.json'):
+                with open('nba_players_full.json', 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    logger.info(f"✅ Loaded {len(data)} players from full dataset")
+                    return data
+        except Exception as e:
+            logger.warning(f"Could not load full dataset: {e}")
+        
+        # If no data file available, return empty list (will cause error)
+        logger.error("No player data file found")
+        return []
     def search(self, query: str, num_results: int = 5) -> List[Dict[str, Any]]:
         """
         Pure vector search - no filtering, let LLM handle all logic
@@ -172,81 +284,67 @@ Player {i}: {result['name']} ({result['position']}, {result['team']}) - Rank #{o
 
         # Enhanced prompt with comprehensive basketball knowledge
         prompt_template = """
-You are a FANTASY BASKETBALL EXPERT. You have access to NBA player data with FANTASY RANKINGS and must make intelligent recommendations.
+You are a FANTASY BASKETBALL EXPERT. You must follow the ranking system EXACTLY.
 
 QUERY: {query}
 
 PLAYER DATABASE:
 {context}
 
-🏀 UNDERSTANDING THE RANKING SYSTEM:
+🚨 CRITICAL RANKING RULES - FOLLOW EXACTLY:
 
-**WHAT "Rank #X" MEANS:**
-• Rank #1 = THE BEST fantasy player (Nikola Jokić) - produces the most fantasy points
-• Rank #2 = SECOND BEST fantasy player (Giannis Antetokounmpo) 
-• Rank #3 = THIRD BEST fantasy player (Shai Gilgeous-Alexander)
-• Rank #19 = The 19th best fantasy player in the league
-• Rank #50 = The 50th best fantasy player in the league
-• Lower numbers = BETTER players, Higher numbers = WORSE players
+WHAT RANKINGS MEAN:
+• Rank #1 = BEST fantasy player (Nikola Jokić) 
+• Rank #2 = SECOND BEST fantasy player (Giannis)
+• Rank #3 = THIRD BEST fantasy player (Shai)
+• Rank #78 = 78th best fantasy player
+• LOWER number = BETTER player (Rank #1 > Rank #78)
 
-**DRAFT LOGIC - THIS IS CRITICAL:**
-• In fantasy drafts, the BEST players get picked FIRST
-• Pick #1 gets the #1 ranked player (Jokić), Pick #2 gets #2 ranked player (Giannis), etc.
-• If someone asks for "position #1" → recommend Rank #1, #2, #3 players (the absolute best)
-• If someone asks for "position #19" → recommend players ranked around #19-25 (players available at that spot)
-• If someone asks for "position #50" → recommend players ranked around #50-60 
+DRAFT POSITION LOGIC - NEVER VIOLATE THIS:
+• Pick #1 → ONLY recommend players ranked #1, #2, or #3
+• Pick #78 → ONLY recommend players ranked #75-85 (around rank #78)
+• Pick #150 → ONLY recommend players ranked #145-155 (around rank #150)
 
-**PLAYER AVAILABILITY BY DRAFT POSITION:**
-• Position #1-5: Only the TOP ranked players (#1-8) are appropriate 
-• Position #10-20: Mid-tier players (ranks #10-30) are appropriate
-• Position #30-50: Later picks (ranks #30-70) are appropriate
-• Position #100+: Deep sleepers (ranks #80+) are appropriate
+🚫 FORBIDDEN MISTAKES:
+• NEVER recommend Anthony Davis (Rank #4) for pick #1 - Jokić (Rank #1) is better!
+• NEVER recommend Rank #25 players for pick #78 - they'll be taken by pick #25!
+• NEVER recommend players with LOWER rank numbers for HIGHER draft positions!
 
-🎯 **HOW TO SELECT PLAYERS FROM THE DATABASE:**
+📋 EXACT INSTRUCTIONS:
 
-**Step 1: UNDERSTAND THE QUERY**
-- Is this asking for a specific draft position? ("position #1", "pick #19")
-- Is this asking for the best players overall? ("top players", "best picks")
-- Is this asking about a specific player? ("tell me about LeBron")
+1. READ THE QUERY: What draft position are they asking about?
 
-**Step 2: LOOK AT THE RANKINGS IN THE DATA**
-- Scan through ALL the players provided in the database above
-- Note each player's "Rank #X" number
-- Remember: LOWER rank numbers = BETTER players
+2. SCAN THE DATABASE: Look through ALL players provided above and note their "Rank #X"
 
-**Step 3: MAKE INTELLIGENT SELECTIONS**
+3. MATHEMATICAL RULE: 
+   - For pick #N, recommend players ranked #(N-5) to #(N+10)
+   - Pick #1 → ranks #1-8
+   - Pick #78 → ranks #73-88
+   - Pick #150 → ranks #145-160
 
-FOR DRAFT POSITION QUERIES:
-- "position #1" → Find and recommend players with Rank #1, #2, #3 from the database
-- "position #19" → Find and recommend players with Rank #17-25 from the database  
-- "position #50" → Find and recommend players with Rank #45-60 from the database
+4. SELECT CORRECTLY:
+   - Find players in the database whose rank numbers match the draft position
+   - If asking for pick #78, ONLY mention players ranked around #78
+   - If asking for pick #1, ONLY mention players ranked #1, #2, #3
+   - If the right players aren't in the database, say "I need to see players ranked #X-Y for this pick"
 
-FOR GENERAL "BEST PLAYERS" QUERIES:
-- Look for the LOWEST rank numbers in the database (Rank #1, #2, #3, etc.)
-- These are the most valuable fantasy players
+5. DOUBLE-CHECK: Before recommending, verify the player's rank matches the pick number
 
-FOR PLAYER COMPARISON QUERIES:
-- Compare the rank numbers of the players mentioned
-- Lower rank = better fantasy player
+EXAMPLES TO FOLLOW:
+• Query: "number 1 pick" → Answer: "Jokić (Rank #1) is your pick - he's the #1 ranked player"
+• Query: "pick #78" → Answer: "Look for players ranked around #78-85 in the database"
+• Query: "pick #150" → Answer: "Look for players ranked around #150 in the database"
 
-**Step 4: EXPLAIN YOUR REASONING**
-- Always mention the player's rank: "Jokić is ranked #1, making him perfect for the first pick"
-- Explain why the rank matches the draft position: "Ranked #19, he's ideal for your 19th pick"
-- Warn about availability: "He's ranked #5, so he'll be gone by pick #19"
+RESPONSE FORMAT:
+1. State the draft position requested
+2. State what rank range you're looking for (pick #N needs ranks #N-5 to #N+10)
+3. Scan the provided database for players in that rank range
+4. If correct players found: Recommend ONLY players whose ranks match
+5. If correct players NOT found: Say "I need players ranked #X-Y for pick #Z, but the search results show different players"
+6. Explain: "Player X is ranked #Y, perfect for pick #Z"
+7. MATH CHECK: Verify rank number ≈ pick number before recommending
 
-🚫 **CRITICAL MISTAKES TO AVOID:**
-- NEVER recommend Jokić (#1) for pick #50 - he'll be taken in the first few picks!
-- NEVER recommend a player ranked #5 for pick #30 - he'll be gone!
-- NEVER ignore the ranking system - it tells you player value!
-
-📋 **RESPONSE FORMAT:**
-1. Understand what draft position or player quality they're asking about
-2. Look through the provided database for players with appropriate ranks
-3. Recommend 2-3 players whose ranks match the query
-4. Explain each player's rank and why they fit the request
-5. Be conversational and helpful like a fantasy expert friend
-
-ANSWER STYLE: Knowledgeable, specific about rankings, and helpful like an experienced fantasy player.
+NEVER recommend players ranked significantly higher or lower than the draft position!
 
 ANSWER:
         """.strip()

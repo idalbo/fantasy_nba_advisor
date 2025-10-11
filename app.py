@@ -39,31 +39,23 @@ for path in [src_path, root_path]:
     if path not in sys.path:
         sys.path.insert(0, path)
 
-# Try importing with detailed error handling
+# Try importing the unified RAG system
 UnifiedFantasyNBARag = None
 import_success = False
 
 try:
     from rag_unified import UnifiedFantasyNBARag
-    logger.info("✅ Using unified RAG system from src directory")
+    logger.info("✅ Using unified RAG system")
     import_success = True
-except ImportError as e1:
-    logger.warning(f"Failed to import from src: {e1}")
-    try:
-        from rag_unified_cloud import UnifiedFantasyNBARag
-        logger.info("✅ Using unified RAG system from cloud copy")
-        import_success = True
-    except ImportError as e2:
-        logger.error(f"Failed to import from root: {e2}")
-        st.error("❌ Failed to import unified RAG system")
-        st.error(f"Src import error: {e1}")
-        st.error(f"Root import error: {e2}")
-        st.info(f"Current directory: {current_dir}")
-        st.info(f"Is Streamlit Cloud: {is_streamlit_cloud}")
-        st.info(f"Src path exists: {os.path.exists(src_path)}")
-        st.info(f"rag_unified.py exists: {os.path.exists(os.path.join(src_path, 'rag_unified.py'))}")
-        st.info(f"rag_unified_cloud.py exists: {os.path.exists(os.path.join(root_path, 'rag_unified_cloud.py'))}")
-        st.stop()
+except ImportError as e:
+    logger.error(f"❌ Failed to import unified RAG system: {e}")
+    st.error("❌ Failed to import unified RAG system")
+    st.error(f"Import error: {e}")
+    st.info(f"Current directory: {current_dir}")
+    st.info(f"Is Streamlit Cloud: {is_streamlit_cloud}")
+    st.info(f"Src path exists: {os.path.exists(src_path)}")
+    st.info(f"rag_unified.py exists: {os.path.exists(os.path.join(src_path, 'rag_unified.py'))}")
+    st.stop()
 
 if not import_success or UnifiedFantasyNBARag is None:
     st.error("❌ UnifiedFantasyNBARag class not properly imported")

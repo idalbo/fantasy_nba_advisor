@@ -28,7 +28,13 @@ class UnifiedFantasyNBARag:
     """
     
     def __init__(self, groq_api_key: Optional[str] = None, cloud_mode: bool = False):
-        self.groq_api_key = groq_api_key or os.getenv('GROQ_API_KEY')
+        # Try to get API key from Streamlit secrets first, then environment
+        try:
+            import streamlit as st
+            self.groq_api_key = groq_api_key or st.secrets.get("GROQ_API_KEY") or os.getenv('GROQ_API_KEY')
+        except:
+            self.groq_api_key = groq_api_key or os.getenv('GROQ_API_KEY')
+        
         self.cloud_mode = cloud_mode
         self.groq_client = None
         

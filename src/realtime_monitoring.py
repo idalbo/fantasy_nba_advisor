@@ -42,6 +42,10 @@ class RealtimeMonitor:
                    metadata.get('rank') or 999)
             ranks_found.append(rank)
         
+        # Auto-detect expected rank range from query if not provided
+        if not expected_rank_range:
+            expected_rank_range = self._infer_rank_range(query)
+        
         # Calculate hit rate if we have expected range
         hit_rate = None
         if expected_rank_range:
@@ -91,6 +95,40 @@ class RealtimeMonitor:
         
         with open(self.log_file, 'a') as f:
             f.write(json.dumps(error_entry) + '\n')
+    
+    def _infer_rank_range(self, query: str) -> Optional[tuple]:
+        """Infer expected rank range from query for hit rate calculation"""
+        import re
+        query_lower = query.lower()
+        
+        # Check for pick number patterns
+        pick_patterns = [
+            (r'pick\s*#?(\d+)', lambda m: int(m.group(1))),
+            (r'(\d+)(?:st|nd|rd|th)\s+pick', lambda m: int(m.group(1))),
+            (r'number\s+(\d+)', lambda m: int(m.group(1))),
+        ]
+        
+        for pattern, extractor in pick_patterns:
+            match = re.search(pattern, query_lower)
+            if match:
+                pick_num = extractor(match)
+                # Expected range is ±5 from pick number
+                return (max(1, pick_num - 5), pick_num + 5)
+        
+        # Check for round-based queries (assume 12-team league)
+        if 'first round' in query_lower:
+            return (1, 17)  # First round ~1-12, with some overlap
+        elif 'second round' in query_lower:
+            return (9, 28)  # Second round ~13-24, with overlap
+        elif 'third round' in query_lower:
+            return (21, 40)
+        
+        # Check for elite/top queries
+        if 'elite' in query_lower or 'top' in query_lower or 'best' in query_lower or '#1' in query_lower:
+            return (1, 15)  # Top players
+        
+        # No specific range detected
+        return None
     
     def _detect_query_type(self, query: str) -> str:
         """Detect the type of query"""

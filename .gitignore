@@ -99,6 +99,18 @@ requirements_streamlit.txt
 SETUP_GUIDE_old.md
 README_old.md
 
+# Documentation files (keep locally, don't push to GitHub)
+DEPLOYMENT.md
+DOCUMENTATION_INDEX.md
+LEAGUE_AWARE_IMPROVEMENTS.md
+PRODUCTION_READY.md
+PROJECT_CLEANUP_SUMMARY.md
+PROJECT_FINALIZATION.md
+QUICK_REFERENCE.md
+SETUP_GUIDE.md
+main.md
+docs/
+
 # Agent-specific files
 AGENT_INSTRUCTIONS.md
 PRODUCTION_READY.md

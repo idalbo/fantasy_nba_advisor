@@ -6,6 +6,7 @@ import re
 import numpy as np
 from pathlib import Path
 from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct, NamedVector
 from sentence_transformers import SentenceTransformer
 from groq import Groq
 import logging
@@ -206,20 +207,22 @@ class FantasyNBARag:
             
             logger.info(f"✅ Loaded materialized data: {len(player_data)} players, {embeddings.shape[1]}D vectors")
             
-            # Create collection in Qdrant
-            from qdrant_client.models import Distance, VectorParams, PointStruct
-            
+            # Create collection in Qdrant for HYBRID SEARCH (dense embeddings + keyword payload)
             collections = self.qdrant_client.get_collections().collections
             if not any(collection.name == "nba_players" for collection in collections):
                 self.qdrant_client.create_collection(
                     collection_name="nba_players",
                     vectors_config=VectorParams(size=embeddings.shape[1], distance=Distance.COSINE),
                 )
-                logger.info("🏗️ Created NBA players collection")
+                logger.info("🏗️ Created NBA players collection for HYBRID SEARCH")
             
-            # Upload points to Qdrant in batches
+            # Upload points to Qdrant with keywords for HYBRID SEARCH
             points = []
             for i, (embedding, player) in enumerate(zip(embeddings, player_data)):
+                # Add searchable keywords to payload for hybrid search
+                keywords = self._extract_keywords(player)
+                player['search_keywords'] = keywords
+                
                 points.append(PointStruct(
                     id=i,
                     vector=embedding.tolist(),
@@ -264,13 +267,12 @@ class FantasyNBARag:
             # Fall back to computing embeddings fresh (slower)
             logger.info("🧮 Computing embeddings fresh (this may take a while)...")
             
-            # Create collection
-            from qdrant_client.models import Distance, VectorParams
+            # Create collection for HYBRID SEARCH
             self.qdrant_client.create_collection(
                 collection_name="nba_players",
                 vectors_config=VectorParams(size=384, distance=Distance.COSINE),
             )
-            logger.info("🏗️ Created NBA players collection")
+            logger.info("🏗️ Created NBA players collection for HYBRID SEARCH")
             
             # Load player data from JSON file
             player_data = self._load_player_data()
@@ -295,8 +297,12 @@ class FantasyNBARag:
                 text += f"Fantasy Rank #{rank}. {draft_context} "
                 text += f"{player.get('expert_analysis', '')} {player.get('stats_narrative', '')}"
                 
-                # Create embedding
+                # Create dense embedding
                 embedding = self._get_embedding_model().encode(text).tolist()
+                
+                # Add keywords to payload for hybrid search
+                keywords = self._extract_keywords(player)
+                player['search_keywords'] = keywords
                 
                 # Create point
                 points.append(PointStruct(
@@ -701,10 +707,49 @@ class FantasyNBARag:
         
         return filters
     
+    def _extract_keywords(self, player: Dict[str, Any]) -> str:
+        """Extract searchable keywords from player data for hybrid search"""
+        keywords = []
+        keywords.append(player.get('player_name', '').lower())
+        keywords.append(player.get('position', '').lower())
+        keywords.append(player.get('team', '').lower())
+        
+        # Add name variations for better keyword matching
+        name = player.get('player_name', '')
+        if name:
+            # First name, last name
+            parts = name.split()
+            keywords.extend([p.lower() for p in parts])
+        
+        # Add stats keywords
+        stats_text = player.get('stats_narrative', '').lower()
+        keywords.append(stats_text)
+        
+        return ' '.join(keywords)
+    
+    def _keyword_score(self, player_keywords: str, query_terms: List[str]) -> float:
+        """Calculate keyword matching score (simple BM25-like scoring)"""
+        if not player_keywords or not query_terms:
+            return 0.0
+        
+        score = 0.0
+        keywords_lower = player_keywords.lower()
+        
+        for term in query_terms:
+            term_lower = term.lower()
+            if term_lower in keywords_lower:
+                # Exact match gets higher score
+                score += 1.0
+                # Boost for term frequency (simple TF)
+                count = keywords_lower.count(term_lower)
+                score += min(count - 1, 2) * 0.5  # Cap bonus at 2 extra occurrences
+        
+        return score
+    
     def search(self, query: str, num_results: int = 5, league_size: int = None) -> List[Dict[str, Any]]:
         """
-        Hybrid search - combines query expansion and metadata filtering with vector search.
-        This improves retrieval without reranking, letting the LLM make final decisions.
+        HYBRID SEARCH combining dense vector search + keyword matching.
+        Implements text+vector search as per DataTalksClub LLM Zoomcamp requirements.
         
         Args:
             query: User's search query
@@ -718,7 +763,7 @@ class FantasyNBARag:
             logger.info(f"🏀 Using league size override: {league_size} teams")
         
         try:
-            logger.info(f"🔍 Hybrid search query: '{query}' (League: {self.league_size} teams)")
+            logger.info(f"🔍 HYBRID SEARCH (Dense Vector + Keyword Matching): '{query}' (League: {self.league_size} teams)")
             
             # STEP 1: Query Expansion - enrich query with basketball context
             expanded_query = self._expand_query(query)
@@ -726,21 +771,51 @@ class FantasyNBARag:
             # STEP 2: Extract Metadata Filters - identify constraints from query
             filters = self._extract_metadata_filters(query)
             
-            # STEP 3: Vector Search - encode expanded query
+            # STEP 3: Encode query for dense vector search
             query_vector = self._get_embedding_model().encode(expanded_query).tolist()
             
-            # STEP 4: Perform Vector Search (get more results for filtering)
-            search_results = self.qdrant_client.search(
+            # STEP 4: Extract query terms for keyword matching
+            query_terms = [term.strip().lower() for term in query.split() if len(term.strip()) > 2]
+            
+            # STEP 5: HYBRID SEARCH - Dense vector search
+            vector_results = self.qdrant_client.search(
                 collection_name="nba_players",
                 query_vector=query_vector,
-                limit=200,  # Get many candidates for hybrid filtering
+                limit=200,  # Get many candidates
                 with_payload=True
             )
             
-            # STEP 5: Convert and Apply Metadata Filters
-            results = []
-            for result in search_results:
+            # STEP 6: Re-rank with keyword matching (hybrid approach)
+            hybrid_results = []
+            for result in vector_results:
                 payload = result.payload
+                
+                # Get vector similarity score
+                vector_score = result.score
+                
+                # Calculate keyword matching score
+                keywords = payload.get('search_keywords', '')
+                keyword_score = self._keyword_score(keywords, query_terms)
+                
+                # HYBRID SCORE: Combine vector (70%) + keyword (30%)
+                hybrid_score = (0.7 * vector_score) + (0.3 * keyword_score)
+                
+                hybrid_results.append({
+                    'payload': payload,
+                    'score': hybrid_score,
+                    'vector_score': vector_score,
+                    'keyword_score': keyword_score
+                })
+            
+            # Sort by hybrid score
+            hybrid_results.sort(key=lambda x: x['score'], reverse=True)
+            
+            logger.info(f"🎯 Hybrid scoring: Combined {len(hybrid_results)} results (vector + keyword)")
+            
+            # STEP 7: Apply metadata filters and convert to final format
+            results = []
+            for result in hybrid_results:
+                payload = result['payload']
                 overall_rank = (payload.get('fantasy_rank') or 
                               payload.get('overall_rank') or 
                               payload.get('rank') or 999)
@@ -764,7 +839,7 @@ class FantasyNBARag:
                         continue
                 
                 results.append({
-                    'score': result.score,
+                    'score': result['score'],
                     'name': payload.get('player_name', '') or payload.get('name', ''),
                     'team': payload.get('team', ''),
                     'position': payload.get('position', ''),
@@ -785,7 +860,7 @@ class FantasyNBARag:
                 if len(results) >= 100:
                     break
             
-            logger.info(f"📊 Hybrid search: {len(search_results)} vector results → {len(results)} after filtering")
+            logger.info(f"📊 Hybrid search: {len(hybrid_results)} candidates → {len(results)} after filtering")
             
             # Progressive fallback strategy:
             # 1. If < 5 results and rank filter exists: Try widening rank filter by 100%
@@ -800,8 +875,8 @@ class FantasyNBARag:
                 
                 # Retry with wider filter
                 results = []
-                for result in search_results[:200]:  # Get more candidates
-                    payload = result.payload
+                for result in hybrid_results[:200]:  # Get more candidates
+                    payload = result['payload']
                     overall_rank = (payload.get('fantasy_rank') or 
                                   payload.get('overall_rank') or 
                                   payload.get('rank') or 999)
@@ -824,7 +899,7 @@ class FantasyNBARag:
                             continue
                     
                     results.append({
-                        'score': result.score,
+                        'score': result['score'],
                         'name': payload.get('player_name', '') or payload.get('name', ''),
                         'team': payload.get('team', ''),
                         'position': payload.get('position', ''),
@@ -851,14 +926,14 @@ class FantasyNBARag:
                 logger.warning(f"⚠️ Still too few results ({len(results)}), falling back to unfiltered search")
                 # Retry with just vector search (no filters)
                 results = []
-                for result in search_results[:100]:
-                    payload = result.payload
+                for result in hybrid_results[:100]:
+                    payload = result['payload']
                     overall_rank = (payload.get('fantasy_rank') or 
                                   payload.get('overall_rank') or 
                                   payload.get('rank') or 999)
                     
                     results.append({
-                        'score': result.score,
+                        'score': result['score'],
                         'name': payload.get('player_name', '') or payload.get('name', ''),
                         'team': payload.get('team', ''),
                         'position': payload.get('position', ''),
@@ -966,107 +1041,31 @@ Player {i}: {name} ({position}, {team}) - Rank #{overall_rank}
 
 """
 
-        # Enhanced prompt with comprehensive basketball knowledge
+        # Natural, conversational prompt for fantasy basketball advice
         prompt_template = """
-You are a FANTASY BASKETBALL EXPERT. You MUST follow these instructions PRECISELY.
+You're a fantasy basketball expert helping someone with their draft. Be conversational and helpful!
 
-QUERY: {query}
+User asked: {query}
 
-AVAILABLE PLAYERS:
+Here are the {num_players} most relevant players for this question:
+
 {context}
 
-🚨 CRITICAL INSTRUCTION: READ EVERY SINGLE PLAYER ABOVE! 🚨
-Before answering, you MUST scan through ALL {num_players} players listed above and note their ranks.
-Do NOT just look at the first few players - CHECK EVERY SINGLE ONE!
+Important context about fantasy rankings:
+- Rank #1 is the BEST player (lower rank = better)
+- For draft advice: recommend players whose rank matches the pick (±5)
+  Example: Pick #1 → suggest players ranked #1-6
+  Example: Pick #25 → suggest players ranked #20-30
 
-🏀 RANKING SYSTEM KNOWLEDGE:
+Your response should:
+1. Answer naturally and directly
+2. Use ranks to explain value ("Jokić is ranked #1, making him perfect for the top pick")
+3. Include key stats (FPPG, FPPM) when relevant
+4. Focus on the players shown above
 
-CRITICAL: UNDERSTAND THE RANKING SYSTEM COMPLETELY!
+Keep it conversational - imagine you're texting advice to a friend who's drafting right now!
 
-RANKING RULES (MEMORIZE THIS):
-• Rank #1 = THE BEST fantasy player (Nikola Jokić)
-• Rank #2 = THE SECOND BEST fantasy player  
-• Rank #3 = THE THIRD BEST fantasy player
-• Rank #50 = THE 50th BEST fantasy player
-• Rank #999 = WORST/UNRANKED player
-
-RANKING ORDER (THIS IS CRITICAL):
-• 1 is BETTER than 2
-• 2 is BETTER than 3  
-• 3 is BETTER than 4
-• 10 is BETTER than 20
-• 20 is BETTER than 50
-• LOWER NUMBER = BETTER PLAYER!
-
-DRAFT POSITION LOGIC:
-• Pick #1 should get Rank #1 player (±5 range: Ranks #1-6)
-• Pick #10 should get Rank #10 player (±5 range: Ranks #5-15)  
-• Pick #25 should get Rank #25 player (±5 range: Ranks #20-30)
-• Pick #78 should get Rank #78 player (±5 range: Ranks #73-83)
-• Pick #N should get Rank #N player (±5 range: Ranks #(N-5) to #(N+5))
-
-HOW TO USE THE PLAYER DATA - FOLLOW THESE STEPS EXACTLY:
-
-STEP 1: IDENTIFY THE QUERY TYPE
-- Is it asking about a specific pick number? ("who for pick #1?", "number 1 pick?")
-- Is it asking about a round? ("first round", "late picks")
-- Is it asking about a specific player? ("how about jokic?")
-
-STEP 2: FOR PICK NUMBER QUERIES ONLY:
-- Extract the pick number from the query
-- Calculate target rank range: Pick #N needs Rank #(N-5) to #(N+5)
-- Example: "pick #1" means need Rank #1 to #6
-- Example: "pick #25" means need Rank #20 to #30
-
-STEP 3: SCAN ALL PLAYERS TO FIND MATCHES
-- Go through EVERY PLAYER in the list above (not just first 5!)
-- Check each player's rank
-- Collect ALL players whose rank is in your target range
-- IGNORE players outside the range
-
-STEP 4: RECOMMEND THE BEST MATCHES
-- List the players you found with matching ranks
-- Explain why they fit based on their rank
-- DO NOT recommend players with ranks outside the target range
-
-⚠️ COMMON MISTAKES TO AVOID:
-• DON'T recommend Rank #7 for Pick #1 (too low)
-• DON'T recommend Rank #59 for Pick #1 (way too low)
-• DON'T just look at the first few players - SCAN ALL OF THEM!
-• DON'T recommend players you didn't see in the list
-• DO find the players with ranks closest to the pick number
-
-QUERY TYPES & HOW TO RESPOND:
-
-📊 PLAYER INFO QUERIES ("How about Jokić?" / "Tell me about LeBron"):
-- Give player overview: rank, production, strengths
-- Example: "Jokić is the #1 ranked fantasy player with 47.2 FPPG. He's the consensus top pick."
-
-🎯 DRAFT POSITION QUERIES ("Who for pick #1?" / "Pick #78 options?" / "First round picks?"):
-- For pick #N, recommend players ranked #N ±5
-- Pick #1 → recommend players ranked #1-6 (Jokić, Giannis, etc.)
-- Pick #25 → recommend players ranked #20-30
-- Pick #78 → recommend players ranked #73-83
-- For "first round" (picks 1-12) → recommend players ranked #1-17
-
-🔍 COMPARISON QUERIES ("Jokić vs Giannis?" / "Better option?"):
-- Compare ranks and production  
-- Lower rank number = better player
-
-🚫 ABSOLUTELY FORBIDDEN:
-• NEVER recommend Rank #7 for Pick #1 (wrong!)
-• NEVER recommend Rank #1 for Pick #78 (impossible!)
-• NEVER mix up rank order (Rank #1 is better than Rank #50)
-• NEVER show your thinking process
-• NEVER say "State the draft position"
-
-RESPONSE STYLE:
-- Natural and conversational 
-- Always mention rank to explain value
-- Include key stats (FPPG, FPPM)
-- Be direct: "For pick #1, take Jokić (Rank #1) - he's the best fantasy player"
-
-ANSWER:
+Your advice:
         """.strip()
 
         num_players = len(search_results[:30])

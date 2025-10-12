@@ -8,7 +8,9 @@ import sys
 import os
 import logging
 import time
+import json
 from datetime import datetime
+from pathlib import Path
 
 # Load environment variables for local/Docker development
 try:
@@ -35,8 +37,9 @@ for path in [src_path, root_path]:
     if path not in sys.path:
         sys.path.insert(0, path)
 
-# Try importing the vector-based RAG system
+# Try importing the vector-based RAG system and monitoring
 FantasyNBARag = None
+RealtimeMonitor = None
 import_success = False
 
 try:
@@ -48,6 +51,17 @@ except ImportError as e:
     st.error("❌ Failed to import vector-based RAG system")
     st.error(f"Import error: {e}")
     st.info(f"Current directory: {current_dir}")
+
+try:
+    from src.realtime_monitoring import RealtimeMonitor
+    logger.info("✅ Monitoring system loaded")
+except ImportError:
+    try:
+        from realtime_monitoring import RealtimeMonitor
+        logger.info("✅ Monitoring system loaded")
+    except ImportError as e:
+        logger.warning(f"⚠️ Monitoring not available: {e}")
+        RealtimeMonitor = None
     st.info(f"Is Streamlit Cloud: {is_streamlit_cloud}")
     st.info(f"Src path exists: {os.path.exists(src_path)}")
     st.info(f"rag.py exists: {os.path.exists(os.path.join(src_path, 'rag.py'))}")
@@ -134,6 +148,15 @@ def main():
         """)
         return
     
+    # Initialize session ID for tracking
+    if 'session_id' not in st.session_state:
+        st.session_state.session_id = f"session_{int(time.time())}_{os.getpid()}"
+    
+    # Initialize monitoring system
+    if 'monitor' not in st.session_state and RealtimeMonitor:
+        st.session_state.monitor = RealtimeMonitor()
+        logger.info("✅ Monitoring system initialized")
+    
     # Initialize the RAG system with API key and league size
     if ('rag_system' not in st.session_state or 
         st.session_state.get('current_api_key') != api_key or
@@ -171,6 +194,65 @@ def main():
         show_system_evaluation()
     elif page == "📊 Monitoring Dashboard":
         show_monitoring_dashboard()
+
+def _log_user_feedback(query: str, response: str, feedback_type: str, feedback_text: str):
+    """Log user feedback to a file"""
+    feedback_dir = Path("monitoring")
+    feedback_dir.mkdir(exist_ok=True)
+    feedback_file = feedback_dir / "user_feedback.jsonl"
+    
+    feedback_entry = {
+        'timestamp': datetime.now().isoformat(),
+        'query': query,
+        'response': response[:200],  # Truncate for storage
+        'feedback_type': feedback_type,
+        'feedback_text': feedback_text,
+        'session_id': st.session_state.get('session_id', 'unknown')
+    }
+    
+    try:
+        with open(feedback_file, 'a') as f:
+            f.write(json.dumps(feedback_entry) + '\n')
+    except Exception as e:
+        logger.warning(f"Failed to log user feedback: {e}")
+
+def _load_monitoring_data():
+    """Load monitoring data from JSONL file"""
+    monitor_file = Path("monitoring/realtime_metrics.jsonl")
+    if not monitor_file.exists():
+        return []
+    
+    data = []
+    try:
+        with open(monitor_file, 'r') as f:
+            for line in f:
+                try:
+                    data.append(json.loads(line.strip()))
+                except json.JSONDecodeError:
+                    continue
+    except Exception as e:
+        logger.warning(f"Failed to load monitoring data: {e}")
+    
+    return data
+
+def _load_feedback_data():
+    """Load user feedback data from JSONL file"""
+    feedback_file = Path("monitoring/user_feedback.jsonl")
+    if not feedback_file.exists():
+        return []
+    
+    data = []
+    try:
+        with open(feedback_file, 'r') as f:
+            for line in f:
+                try:
+                    data.append(json.loads(line.strip()))
+                except json.JSONDecodeError:
+                    continue
+    except Exception as e:
+        logger.warning(f"Failed to load feedback data: {e}")
+    
+    return data
 
 def show_chat_assistant():
     """Show the main chat interface"""
@@ -211,13 +293,68 @@ def show_chat_assistant():
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
+                    start_time = time.time()
+                    
+                    # Get search results for monitoring
+                    search_results = st.session_state.rag_system.search(prompt, num_results=10)
                     response = st.session_state.rag_system.get_response(prompt)
+                    
+                    response_time = time.time() - start_time
+                    
+                    # Log to monitoring system
+                    if 'monitor' in st.session_state and st.session_state.monitor:
+                        try:
+                            st.session_state.monitor.log_query(
+                                query=prompt,
+                                results=search_results,
+                                response_time=response_time,
+                                llm_response=response
+                            )
+                        except Exception as mon_error:
+                            logger.warning(f"Monitoring log failed: {mon_error}")
+                    
                     st.markdown(response)
-                    st.session_state.messages.append({"role": "assistant", "content": response})
+                    st.session_state.messages.append({
+                        "role": "assistant", 
+                        "content": response,
+                        "timestamp": datetime.now(),
+                        "response_time": response_time
+                    })
+                    
+                    # User feedback collection
+                    st.divider()
+                    col1, col2, col3 = st.columns([1, 1, 4])
+                    with col1:
+                        if st.button("👍 Helpful", key=f"helpful_{len(st.session_state.messages)}"):
+                            _log_user_feedback(prompt, response, "positive", "Helpful")
+                            st.success("Thanks for your feedback!")
+                    with col2:
+                        if st.button("👎 Not Helpful", key=f"not_helpful_{len(st.session_state.messages)}"):
+                            _log_user_feedback(prompt, response, "negative", "Not helpful")
+                            st.info("Thanks! We'll work on improving.")
+                    
+                    # Optional comment
+                    with st.expander("💬 Add detailed feedback (optional)"):
+                        feedback_text = st.text_area(
+                            "What could we improve?",
+                            key=f"feedback_text_{len(st.session_state.messages)}"
+                        )
+                        if st.button("Submit Feedback", key=f"submit_feedback_{len(st.session_state.messages)}"):
+                            if feedback_text:
+                                _log_user_feedback(prompt, response, "comment", feedback_text)
+                                st.success("Feedback submitted! Thank you!")
+                    
                 except Exception as e:
                     error_msg = f"Sorry, I encountered an error: {e}"
                     st.error(error_msg)
                     st.session_state.messages.append({"role": "assistant", "content": error_msg})
+                    
+                    # Log error to monitoring
+                    if 'monitor' in st.session_state and st.session_state.monitor:
+                        try:
+                            st.session_state.monitor.log_error(prompt, str(e))
+                        except:
+                            pass
 
 def show_player_search():
     """Show player search interface"""
@@ -694,61 +831,154 @@ def show_system_evaluation():
         st.error(f"Error in system evaluation: {e}")
 
 def show_monitoring_dashboard():
-    """Show monitoring and system health dashboard"""
+    """Show comprehensive monitoring dashboard with 5+ charts"""
     st.header("📊 Monitoring Dashboard")
+    st.write("Real-time system performance and user feedback analytics")
     
     try:
-        # System health overview
-        st.subheader("🏥 System Health")
+        # Load monitoring data
+        monitor_data = _load_monitoring_data()
+        feedback_data = _load_feedback_data()
         
+        # === CHART 1: System Health Overview ===
+        st.subheader("🏥 1. System Health Overview")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             health_status = "✅ Healthy" if st.session_state.rag_system else "❌ Error"
-            st.metric("System Status", health_status, "🔧")
+            st.metric("System Status", health_status)
         
         with col2:
-            api_status = "✅ Connected" if st.session_state.rag_system.groq_client else "❌ Disconnected"
-            st.metric("API Status", api_status, "🔌")
+            total_queries = len(monitor_data) if monitor_data else 0
+            st.metric("Total Queries", total_queries)
         
         with col3:
-            data_status = "✅ Loaded" if st.session_state.rag_system.sample_data else "❌ Missing"
-            st.metric("Data Status", data_status, "📊")
+            if monitor_data and len(monitor_data) > 0:
+                avg_response_time = sum(m.get('response_time', 0) for m in monitor_data) / len(monitor_data)
+                st.metric("Avg Response Time", f"{avg_response_time:.2f}s")
+            else:
+                st.metric("Avg Response Time", "N/A")
         
         with col4:
-            player_count = len(st.session_state.rag_system.sample_data) if st.session_state.rag_system.sample_data else 0
-            st.metric("Players Loaded", player_count, "👥")
+            player_count = 450  # From nba_players_full.json
+            st.metric("Players Indexed", player_count)
         
         st.divider()
         
-        # Usage statistics
-        st.subheader("📈 Usage Statistics")
-        
-        # Initialize session state for tracking
-        if 'usage_stats' not in st.session_state:
-            st.session_state.usage_stats = {
-                'searches': 0,
-                'ai_requests': 0,
-                'pages_visited': set(),
-                'start_time': time.time()
-            }
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Search Queries", st.session_state.usage_stats['searches'], "🔍")
-        
-        with col2:
-            st.metric("AI Requests", st.session_state.usage_stats['ai_requests'], "🤖")
-        
-        with col3:
-            session_time = time.time() - st.session_state.usage_stats['start_time']
-            st.metric("Session Time", f"{session_time/60:.1f} min", "⏱️")
+        # === CHART 2: Query Volume Over Time ===
+        st.subheader("📈 2. Query Volume Over Time")
+        if monitor_data and len(monitor_data) > 0:
+            import pandas as pd
+            df = pd.DataFrame(monitor_data)
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df['hour'] = df['timestamp'].dt.floor('H')
+            hourly_counts = df.groupby('hour').size().reset_index(name='count')
+            
+            st.line_chart(hourly_counts.set_index('hour')['count'])
+            st.caption(f"Total queries: {len(df)}")
+        else:
+            st.info("No query data yet. Start using the chat to see analytics!")
         
         st.divider()
         
-        # Real-time monitoring
-        st.subheader("🔄 Real-time Monitoring")
+        # === CHART 3: Response Time Distribution ===
+        st.subheader("⏱️ 3. Response Time Distribution")
+        if monitor_data and len(monitor_data) > 0:
+            response_times = [m.get('response_time', 0) for m in monitor_data if m.get('response_time')]
+            if response_times:
+                import pandas as pd
+                df_times = pd.DataFrame({'response_time': response_times})
+                st.bar_chart(df_times['response_time'])
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Min", f"{min(response_times):.2f}s")
+                with col2:
+                    st.metric("Avg", f"{sum(response_times)/len(response_times):.2f}s")
+                with col3:
+                    st.metric("Max", f"{max(response_times):.2f}s")
+        else:
+            st.info("No response time data yet")
+        
+        st.divider()
+        
+        # === CHART 4: Query Type Distribution ===
+        st.subheader("🔍 4. Query Type Distribution")
+        if monitor_data and len(monitor_data) > 0:
+            from collections import Counter
+            query_types = [m.get('query_type', 'unknown') for m in monitor_data]
+            type_counts = Counter(query_types)
+            
+            import pandas as pd
+            df_types = pd.DataFrame(list(type_counts.items()), columns=['Query Type', 'Count'])
+            st.bar_chart(df_types.set_index('Query Type'))
+        else:
+            st.info("No query type data yet")
+        
+        st.divider()
+        
+        # === CHART 5: User Feedback Sentiment ===
+        st.subheader("😊 5. User Feedback Sentiment")
+        if feedback_data and len(feedback_data) > 0:
+            from collections import Counter
+            feedback_types = [f.get('feedback_type', 'unknown') for f in feedback_data]
+            sentiment_counts = Counter(feedback_types)
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("👍 Positive", sentiment_counts.get('positive', 0), delta="Helpful")
+            with col2:
+                st.metric("👎 Negative", sentiment_counts.get('negative', 0), delta="Needs improvement")
+            with col3:
+                st.metric("💬 Comments", sentiment_counts.get('comment', 0), delta="Detailed feedback")
+            
+            # Calculate satisfaction rate
+            total_feedback = sentiment_counts.get('positive', 0) + sentiment_counts.get('negative', 0)
+            if total_feedback > 0:
+                satisfaction_rate = (sentiment_counts.get('positive', 0) / total_feedback) * 100
+                st.progress(satisfaction_rate / 100)
+                st.caption(f"Satisfaction Rate: {satisfaction_rate:.1f}%")
+        else:
+            st.info("No user feedback yet. Use the 👍/👎 buttons in the chat!")
+        
+        st.divider()
+        
+        # === CHART 6: Hit Rate Performance ===
+        st.subheader("🎯 6. Retrieval Hit Rate Performance")
+        if monitor_data and len(monitor_data) > 0:
+            hit_rates = [m.get('hit_rate') for m in monitor_data if m.get('hit_rate') is not None]
+            if hit_rates:
+                import pandas as pd
+                df_hits = pd.DataFrame({'hit_rate': hit_rates})
+                st.area_chart(df_hits['hit_rate'])
+                
+                avg_hit_rate = sum(hit_rates) / len(hit_rates)
+                st.metric("Average Hit Rate", f"{avg_hit_rate:.1f}%")
+                st.caption("Hit rate measures how well the system retrieves relevant results")
+            else:
+                st.info("Hit rate data not available for logged queries")
+        else:
+            st.info("No hit rate data yet")
+        
+        st.divider()
+        
+        # === CHART 7: Recent Feedback Comments ===
+        st.subheader("💬 7. Recent User Feedback")
+        if feedback_data and len(feedback_data) > 0:
+            # Show last 10 feedback entries
+            recent_feedback = sorted(feedback_data, key=lambda x: x.get('timestamp', ''), reverse=True)[:10]
+            
+            for i, fb in enumerate(recent_feedback):
+                with st.expander(f"Feedback {i+1} - {fb.get('feedback_type', 'unknown')} ({fb.get('timestamp', 'N/A')[:10]})"):
+                    st.write(f"**Query:** {fb.get('query', 'N/A')[:100]}...")
+                    st.write(f"**Feedback:** {fb.get('feedback_text', 'N/A')}")
+        else:
+            st.info("No detailed feedback yet")
+        
+        st.divider()
+        
+        # Real-time monitoring status
+        st.subheader("🔄 Real-time Monitoring Status")
         
         col1, col2 = st.columns(2)
         

@@ -38,6 +38,8 @@ venv.bak/
 
 # Data and logs
 data/
+!data/player_embeddings.pkl
+!data/player_metadata.json
 logs/
 *.log
 

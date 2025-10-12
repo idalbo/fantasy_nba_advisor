@@ -93,11 +93,25 @@ def main():
     # Sidebar configuration
     st.sidebar.title("⚙️ Configuration")
     
+    # League size selector
+    st.sidebar.subheader("🏀 League Settings")
+    league_size = st.sidebar.selectbox(
+        "League Size:",
+        options=[8, 10, 12, 14, 16, 18, 20],
+        index=4,  # Default to 16-team league
+        help="Number of teams in your fantasy league. This affects draft round calculations."
+    )
+    st.session_state.league_size = league_size
+    st.sidebar.info(f"Round 1: Picks 1-{league_size} | Round 2: Picks {league_size+1}-{league_size*2}")
+    
+    st.sidebar.divider()
+    
     # Environment info (for debugging)
     if st.sidebar.checkbox("🔧 Show Debug Info"):
         st.sidebar.write(f"**Environment:** {'Streamlit Cloud' if is_streamlit_cloud else 'Local'}")
         st.sidebar.write(f"**Directory:** {current_dir}")
         st.sidebar.write(f"**Import:** {'✅ Success' if import_success else '❌ Failed'}")
+        st.sidebar.write(f"**League Size:** {league_size} teams")
     
     # Get API key
     api_key = get_api_key()
@@ -120,13 +134,19 @@ def main():
         """)
         return
     
-    # Initialize the RAG system with API key
-    if 'rag_system' not in st.session_state or st.session_state.get('current_api_key') != api_key:
+    # Initialize the RAG system with API key and league size
+    if ('rag_system' not in st.session_state or 
+        st.session_state.get('current_api_key') != api_key or
+        st.session_state.get('current_league_size') != league_size):
         try:
-            with st.spinner("Initializing NBA Vector Search System..."):
-                st.session_state.rag_system = FantasyNBARag(groq_api_key=api_key)
+            with st.spinner(f"Initializing NBA Vector Search System ({league_size}-team league)..."):
+                st.session_state.rag_system = FantasyNBARag(
+                    groq_api_key=api_key,
+                    league_size=league_size
+                )
                 st.session_state.current_api_key = api_key
-            st.success("✅ NBA Vector Search System initialized successfully!")
+                st.session_state.current_league_size = league_size
+            st.success(f"✅ NBA Vector Search System initialized for {league_size}-team league!")
         except Exception as e:
             st.error(f"❌ Failed to initialize NBA Vector Search System: {e}")
             st.info("Please check your API key and Qdrant connection")

@@ -1051,17 +1051,23 @@ Here are the {num_players} most relevant players for this question:
 
 {context}
 
-Important context about fantasy rankings:
+Important context about fantasy rankings and draft picks:
 - Rank #1 is the BEST player (lower rank = better)
-- For draft advice: recommend players whose rank matches the pick (±5)
-  Example: Pick #1 → suggest players ranked #1-6
-  Example: Pick #25 → suggest players ranked #20-30
+- For draft advice: recommend players whose rank matches the pick number (±5)
+  Example: Pick #1 (1st overall) → suggest players ranked #1-6
+  Example: Pick #16 (16th overall) → suggest players ranked #11-21
+  Example: Pick #25 (2nd round, pick 1 in 12-team) → suggest players ranked #20-30
+
+CRITICAL: When someone says "pick 16" or "16th pick", they mean the 16th pick OVERALL, not a specific round.
+- Pick #16 overall = roughly rank #11-21 players
+- Don't confuse this with "16th pick in round 2" which would be pick #28+ overall
 
 Your response should:
 1. Answer naturally and directly
-2. Use ranks to explain value ("Jokić is ranked #1, making him perfect for the top pick")
-3. Include key stats (FPPG, FPPM) when relevant
-4. Focus on the players shown above
+2. ONLY recommend players whose rank is close to the pick number (within ±5)
+3. Use ranks to explain value ("Alperen Şengün is ranked #14, making him perfect for pick #16")
+4. Include key stats (FPPG, FPPM) when relevant
+5. Focus ONLY on the players shown above whose ranks match
 
 Keep it conversational - imagine you're texting advice to a friend who's drafting right now!
 

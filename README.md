@@ -1,12 +1,20 @@
-# 🏀 Fantasy NBA Advisor# Fantasy NBA Advisor
+# 🏀 Fantasy NBA Advisor
 
+> **Advanced AI-Powered Fantasy Basketball Assistant with League-Aware Draft Strategy**
 
+**Fantasy NBA Advisor** is an advanced RAG (Retrieval-Augmented Generation) application that provides expert insights and advice for fantasy NBA players using **100% real NBA data** from Basketball Reference (2024-25 season).
 
-> **Advanced AI-Powered Fantasy Basketball Assistant with League-Aware Draft Strategy****Fantasy NBA Advisor** is an advanced RAG (Retrieval-Augmented Generation) application that provides expert insights and advice for fantasy NBA players using **100% real NBA data** from Basketball Reference (2024-25 season).
+## 🚀 Try It Live!
 
+**[👉 Launch Fantasy NBA Advisor](https://fantasy-nba-advisor.streamlit.app/)** - Try it now on Streamlit Cloud!
 
+---
 
-[![Python 3.12](https://im---
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![Streamlit](https://img.shields.io/badge/streamlit-1.28+-red.svg)](https://streamlit.io)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
+
+---
 
 ## 🔧 Technical Details
 

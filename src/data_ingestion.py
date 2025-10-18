@@ -270,58 +270,68 @@ class DataIngestion:
             return None
 
     def _extract_team_data_from_html(self, table):
-        """Extract team information directly from HTML structure"""
+        """Extract team information directly from an HTML table.
+
+        This function is robust to variations in Basketball-Reference table
+        markup: it tries 'team_id' first, then 'team_name_abbr'. Returns a
+        dict mapping player display name -> team abbreviation.
+        """
         logger.info("Extracting team data from HTML...")
         team_data = {}
-        
+
         try:
             rows = table.find_all('tr')
             for row in rows[1:]:  # Skip header row
-                # Find player name cell
                 player_cell = row.find('td', {'data-stat': 'player'})
                 if not player_cell:
                     continue
-                
+
                 player_name = player_cell.get_text().strip()
                 if not player_name or player_name == 'Player':
                     continue
-                
-                # Find team cell with specific data-stat attribute
-                team_cell = row.find('td', {'data-stat': 'team_name_abbr'})
-                if team_cell:
-                    # Extract team from either link text or cell text
-                    team_link = team_cell.find('a')
-                    if team_link:
-                        team = team_link.get_text().strip()
-                    else:
-                        team = team_cell.get_text().strip()
-                    
-                    if team and team != 'Tm':
-                        team_data[player_name] = team
-                        
+
+                # Prefer team_id column but fall back to team_name_abbr
+                team_cell = row.find('td', {'data-stat': 'team_id'}) or row.find('td', {'data-stat': 'team_name_abbr'})
+                if not team_cell:
+                    continue
+
+                team_link = team_cell.find('a')
+                team = team_link.get_text().strip() if team_link else team_cell.get_text().strip()
+                if team and team not in ['Tm', '']:
+                    team_data[player_name] = team
+
             logger.info(f"Extracted team data for {len(team_data)} players")
             if team_data:
-                # Show sample
                 sample_teams = list(team_data.items())[:3]
                 for player, team in sample_teams:
                     logger.info(f"   {player}: {team}")
-                    
+
         except Exception as e:
             logger.error(f"Error extracting team data: {e}")
-            
+
         return team_data
     
     def _merge_team_data(self, df, team_data):
-        """Merge extracted team data with DataFrame"""
+        """Merge extracted team data into the DataFrame.
+
+        Adds `Team_Extracted` (the canonical extracted value) and, for
+        compatibility, sets `Team` when it is missing or empty.
+        """
         logger.info("Merging team data with DataFrame...")
-        
-        # Add a new column for extracted team data
+
+        df = df.copy()
         df['Team_Extracted'] = df['Player'].map(team_data)
-        
-        # Count successful matches
+
+        # If a canonical Team column is missing or empty, populate it from Team_Extracted
+        if 'Team' not in df.columns:
+            df['Team'] = None
+
+        missing_team_mask = df['Team'].isna() | (df['Team'].astype(str).str.strip() == '')
+        df.loc[missing_team_mask, 'Team'] = df.loc[missing_team_mask, 'Team_Extracted']
+
         successful_matches = df['Team_Extracted'].notna().sum()
-        logger.info(f"Successfully matched teams for {successful_matches}/{len(df)} players")
-        
+        logger.info(f"Successfully matched team data for {successful_matches}/{len(df)} players")
+
         return df
 
     def _get_team_name(self, row):
@@ -339,67 +349,6 @@ class DataIngestion:
         logger.warning(f"No team found for player {row.get('Player', 'Unknown')}. Available columns: {list(row.index)}")
         return 'Unknown'
 
-    def _extract_team_data_from_html(self, table):
-        """Extract team data directly from HTML table"""
-        team_data = {}
-        
-        try:
-            # Find all rows in the table
-            rows = table.find_all('tr')
-            
-            for row in rows[1:]:  # Skip header row
-                # Find player name cell
-                player_cell = row.find('td', {'data-stat': 'player'})
-                if not player_cell:
-                    continue
-                
-                player_name = player_cell.get_text().strip()
-                if not player_name or player_name == 'Player':
-                    continue
-                
-                # Find team cell
-                team_cell = row.find('td', {'data-stat': 'team_id'})
-                if not team_cell:
-                    # Try alternative team data attributes
-                    team_cell = row.find('td', {'data-stat': 'team_name_abbr'})
-                
-                if team_cell:
-                    # Extract team from link or text
-                    team_link = team_cell.find('a')
-                    if team_link:
-                        team = team_link.get_text().strip()
-                    else:
-                        team = team_cell.get_text().strip()
-                    
-                    if team and team != '':
-                        team_data[player_name] = team
-            
-            logger.info(f"Extracted team data for {len(team_data)} players")
-            if team_data:
-                # Show sample
-                sample_items = list(team_data.items())[:3]
-                for player, team in sample_items:
-                    logger.info(f"   {player}: {team}")
-            
-        except Exception as e:
-            logger.error(f"Error extracting team data from HTML: {e}")
-        
-        return team_data
-
-    def _merge_team_data(self, df, team_data):
-        """Merge extracted team data with DataFrame"""
-        if not team_data:
-            logger.warning("No team data to merge")
-            return df
-        
-        # Add team column to DataFrame
-        df['Team_Extracted'] = df['Player'].map(team_data)
-        
-        # Count successful matches
-        matched = df['Team_Extracted'].notna().sum()
-        logger.info(f"Successfully matched team data for {matched}/{len(df)} players")
-        
-        return df
 
     def _clean_html(self, text):
         """Clean HTML tags and normalize text"""
@@ -437,7 +386,7 @@ class DataIngestion:
         return meaningful_badges
 
     def collect_ringer_data(self):
-        """Collect The Ringer rankings data - NO FALLBACKS"""
+        """Collect The Ringer rankings data"""
         logger.info("Collecting The Ringer rankings data...")
         
         try:
@@ -564,7 +513,7 @@ class DataIngestion:
             return {}
 
     def scrape_hoopshype_rankings(self):
-        """Scrape player rankings and analysis from HoopsHype - NO FALLBACKS"""
+        """Scrape player rankings and analysis from HoopsHype"""
         logger.info("Scraping HoopsHype rankings...")
         
         url = "https://eu.hoopshype.com/story/sports/nba/2025/10/03/nba-ranking-the-top-100-players-for-2025-26/86477672007/"
@@ -910,7 +859,7 @@ class DataIngestion:
             # Setup Qdrant collection
             self.setup_collection()
             
-            # Scrape data from all sources - REAL DATA ONLY
+            # Scrape data from all sources
             logger.info("Scraping REAL NBA data from Basketball Reference...")
             stats_df = self.scrape_basketball_reference()
             
@@ -920,7 +869,7 @@ class DataIngestion:
             
             logger.info(f"Successfully scraped {len(stats_df)} real NBA players")
             
-            # Scrape expert analysis - NO FALLBACKS
+            # Scrape expert analysis
             logger.info("Collecting expert analysis from external sources...")
             ringer_data = self.collect_ringer_data()
             hoopshype_data = self.scrape_hoopshype_rankings()
@@ -1019,50 +968,3 @@ class DataIngestion:
 if __name__ == "__main__":
     ingestion = DataIngestion()
     ingestion.run_ingestion()
-
-    def _extract_team_from_html(self, soup):
-        """Extract team information directly from HTML"""
-        team_data = {}
-        
-        # Find all rows in the stats table
-        rows = soup.find_all('tr')
-        
-        for row in rows:
-            # Get player name from the row
-            player_cell = row.find('td', {'data-stat': 'player'})
-            if not player_cell:
-                continue
-                
-            player_name = player_cell.get_text().strip()
-            if not player_name or player_name == 'Player':
-                continue
-            
-            # Get team from the same row
-            team_cell = row.find('td', {'data-stat': 'team_id'})
-            if not team_cell:
-                # Try alternative team column names
-                team_cell = row.find('td', {'data-stat': 'team_name_abbr'})
-            
-            if team_cell:
-                team_name = team_cell.get_text().strip()
-                if team_name and team_name != 'Tm':
-                    team_data[player_name] = team_name
-        
-        logger.info(f"Extracted team data for {len(team_data)} players from HTML")
-        return team_data
-    
-    def _merge_team_data(self, df, team_data):
-        """Merge extracted team data with the DataFrame"""
-        if not team_data:
-            return df
-        
-        # Add team column if it doesn't exist or fix existing one
-        df = df.copy()
-        
-        for idx, row in df.iterrows():
-            player_name = row['Player']
-            if player_name in team_data:
-                df.at[idx, 'Team'] = team_data[player_name]
-        
-        logger.info(f"Merged team data for DataFrame with {len(df)} players")
-        return df

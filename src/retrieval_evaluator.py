@@ -2,7 +2,7 @@
 Retrieval Evaluator - Library Module for In-App Evaluation
 
 This module provides real-time evaluation functionality for the main Streamlit application.
-Used by src/app.py to evaluate different retrieval approaches, embedding models, and RAG performance.
+Used by app.py to evaluate different retrieval approaches, embedding models, and RAG performance.
 
 Purpose: Embedded evaluation functionality within the main application
 Usage: Imported by the Streamlit app for ongoing performance monitoring
@@ -10,11 +10,7 @@ Class: RetrievalEvaluator
 """
 
 import time
-import numpy as np
 from typing import Dict, List, Tuple, Any
-from sklearn.metrics import precision_score, recall_score, f1_score
-from sklearn.metrics.pairwise import cosine_similarity
-from sentence_transformers import SentenceTransformer
 import logging
 
 logger = logging.getLogger(__name__)
@@ -78,6 +74,14 @@ class RetrievalEvaluator:
     
     def evaluate_embedding_models(self) -> Dict[str, Any]:
         """Test different embedding models for fantasy basketball domain"""
+        # Lazy import heavy dependency to avoid import-time failures when this
+        # module is present but unused in environments without the package.
+        try:
+            from sentence_transformers import SentenceTransformer
+        except Exception as e:
+            logger.warning(f"SentenceTransformer unavailable: {e}")
+            SentenceTransformer = None
+
         models_to_test = [
             "all-MiniLM-L6-v2",
             "all-mpnet-base-v2", 
@@ -95,6 +99,8 @@ class RetrievalEvaluator:
                 start_time = time.time()
                 
                 # Load model
+                if SentenceTransformer is None:
+                    raise RuntimeError("SentenceTransformer is not available in the environment")
                 model = SentenceTransformer(model_name)
                 
                 # Test on sample queries
@@ -142,7 +148,12 @@ class RetrievalEvaluator:
         test_queries = self.get_test_queries_and_expected_results()
         methods = ["vector_only", "text_only", "hybrid", "hybrid_with_reranking"]
         results = {}
-        
+        # Lazy import numpy for numeric aggregations (optional dependency)
+        try:
+            import numpy as np
+        except Exception:
+            np = None
+
         for method in methods:
             logger.info(f"Testing retrieval method: {method}")
             method_results = {
@@ -174,10 +185,18 @@ class RetrievalEvaluator:
                 method_results["cosine_similarities"].append(cosine_sim)
             
             # Aggregate results
-            method_results["avg_precision"] = np.mean(method_results["precision"])
-            method_results["avg_recall"] = np.mean(method_results["recall"])
-            method_results["avg_f1_score"] = np.mean(method_results["f1_score"])
-            method_results["avg_cosine_similarity"] = np.mean(method_results["cosine_similarities"])
+            # Use numpy if available, otherwise fall back to Python sums
+            def _mean(lst):
+                if not lst:
+                    return 0
+                if np is not None:
+                    return float(np.mean(lst))
+                return sum(lst) / len(lst)
+
+            method_results["avg_precision"] = _mean(method_results["precision"])
+            method_results["avg_recall"] = _mean(method_results["recall"])
+            method_results["avg_f1_score"] = _mean(method_results["f1_score"])
+            method_results["avg_cosine_similarity"] = _mean(method_results["cosine_similarities"])
             method_results["avg_response_time"] = total_time / len(test_queries)
             
             results[method] = method_results
@@ -209,14 +228,21 @@ class RetrievalEvaluator:
         test_queries = self.get_test_queries_and_expected_results()
         
         # Test fusion methods
+        # Lazy import numpy
+        try:
+            import numpy as np
+        except Exception:
+            np = None
+
         for fusion_method in fusion_methods:
             fusion_scores = []
             for test_case in test_queries[:4]:  # Test subset for performance
                 score = self._evaluate_fusion_method(fusion_method, test_case)
                 fusion_scores.append(score)
             
+            avg_score = float(np.mean(fusion_scores)) if (np is not None and fusion_scores) else (sum(fusion_scores)/len(fusion_scores) if fusion_scores else 0)
             results["fusion_methods"][fusion_method] = {
-                "avg_score": np.mean(fusion_scores),
+                "avg_score": avg_score,
                 "scores": fusion_scores
             }
         
@@ -227,27 +253,28 @@ class RetrievalEvaluator:
                 score = self._evaluate_reranking_method(rerank_method, test_case)
                 rerank_scores.append(score)
             
+            avg_score = float(np.mean(rerank_scores)) if (np is not None and rerank_scores) else (sum(rerank_scores)/len(rerank_scores) if rerank_scores else 0)
             results["reranking_methods"][rerank_method] = {
-                "avg_score": np.mean(rerank_scores),
+                "avg_score": avg_score,
                 "scores": rerank_scores
             }
         
         # Find best combination
         best_fusion = max(results["fusion_methods"].keys(), 
-                         key=lambda x: results["fusion_methods"][x]["avg_score"])
+                          key=lambda x: results["fusion_methods"][x]["avg_score"])
         best_reranking = max(results["reranking_methods"].keys(),
-                           key=lambda x: results["reranking_methods"][x]["avg_score"])
-        
+                             key=lambda x: results["reranking_methods"][x]["avg_score"])
+
         results["best_combination"] = {
             "fusion": best_fusion,
             "reranking": best_reranking,
             "combined_score": (results["fusion_methods"][best_fusion]["avg_score"] + 
-                             results["reranking_methods"][best_reranking]["avg_score"]) / 2
+                                 results["reranking_methods"][best_reranking]["avg_score"]) / 2
         }
-        
+
         return results
-    
-    def _calculate_query_relevance(self, query: str, query_embedding: np.ndarray, test_case: Dict) -> float:
+
+    def _calculate_query_relevance(self, query: str, query_embedding: Any, test_case: Dict) -> float:
         """Calculate relevance score for a query embedding"""
         # Simplified relevance calculation based on fantasy basketball domain
         fantasy_keywords = ["fantasy", "points", "fppm", "efficiency", "draft", "elite"]
@@ -308,8 +335,13 @@ class RetrievalEvaluator:
         recall = true_positives / len(expected_players) if expected_players else 0
         f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
         
-        # Simulate cosine similarity
-        avg_cosine_sim = np.mean([result.get("score", 0.5) for result in retrieved_results])
+        # Simulate cosine similarity (use numpy if available)
+        try:
+            import numpy as np
+            avg_cosine_sim = float(np.mean([result.get("score", 0.5) for result in retrieved_results]))
+        except Exception:
+            scores = [result.get("score", 0.5) for result in retrieved_results]
+            avg_cosine_sim = sum(scores) / len(scores) if scores else 0.0
         
         return precision, recall, f1, avg_cosine_sim
     

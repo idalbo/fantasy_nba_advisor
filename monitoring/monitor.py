@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import os
 import logging
 from typing import Dict, List, Any
-import time
 
 logger = logging.getLogger(__name__)
 
@@ -178,52 +177,6 @@ class FantasyNBAMonitor:
             health_status['recommendations'].append("No recent activity. Check if application is accessible.")
         
         return health_status
-    
-    def export_metrics_for_phoenix(self) -> Dict[str, Any]:
-        """Export metrics in format suitable for Phoenix monitoring"""
-        interactions = self.load_interactions(days_back=30)
-        
-        if not interactions:
-            return {'error': 'No data available'}
-        
-        # Convert to format suitable for Phoenix
-        phoenix_data = {
-            'traces': [],
-            'evaluations': [],
-            'metadata': {
-                'application': 'fantasy-nba-advisor',
-                'version': '1.0.0',
-                'export_timestamp': datetime.now().isoformat()
-            }
-        }
-        
-        for interaction in interactions:
-            trace = {
-                'trace_id': interaction.get('trace_id', f"trace_{hash(interaction['timestamp'])}"),
-                'span_id': f"span_{hash(interaction['query'])}",
-                'timestamp': interaction['timestamp'],
-                'input': interaction['query'],
-                'output': interaction.get('response', ''),
-                'metadata': {
-                    'num_results': interaction.get('num_results', 0),
-                    'top_players': interaction.get('top_players', []),
-                    'feedback': interaction.get('feedback')
-                },
-                'latency_ms': interaction.get('response_time', 0) * 1000
-            }
-            phoenix_data['traces'].append(trace)
-            
-            # Add evaluation if feedback is available
-            if interaction.get('feedback'):
-                evaluation = {
-                    'trace_id': trace['trace_id'],
-                    'name': 'user_feedback',
-                    'label': 'positive' if '👍' in interaction['feedback'] else 'negative',
-                    'score': 1.0 if '👍' in interaction['feedback'] else 0.0
-                }
-                phoenix_data['evaluations'].append(evaluation)
-        
-        return phoenix_data
 
 def main():
     """Main monitoring function"""

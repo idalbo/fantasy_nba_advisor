@@ -9,6 +9,7 @@ import pickle
 import numpy as np
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
+from src.draft_context import build_draft_context
 from loguru import logger
 import sys
 import os
@@ -29,57 +30,6 @@ def load_player_data():
     except Exception as e:
         logger.error(f"❌ Error loading player data: {e}")
         return []
-
-def build_draft_context(rank: int, fppm: float, position: str) -> str:
-    """Build rich draft position context for better vector search retrieval"""
-    if rank == 999:
-        return "Late round sleeper or waiver wire option."
-    
-    # Elite tier (Ranks 1-10)
-    if rank <= 10:
-        tier = "ELITE FIRST ROUND PICK"
-        desc = f"Top {rank} fantasy player. Should go in picks 1-10 of any draft. Premium first round selection."
-        if rank <= 3:
-            desc += " Consensus top 3 pick. Absolute elite tier."
-        elif rank <= 6:
-            desc += " Core first round target."
-    
-    # First round (Ranks 11-30)
-    elif rank <= 30:
-        tier = "FIRST ROUND VALUE"
-        desc = f"Ranked #{rank}. Excellent first round pick around picks {rank-5} to {rank+5}. Solid fantasy starter."
-        if position in ['C', 'PF']:
-            desc += f" Strong {position} option for positional scarcity."
-    
-    # Second/Third round (Ranks 31-50)
-    elif rank <= 50:
-        tier = "EARLY MID-ROUND"
-        desc = f"Ranked #{rank}. Great 2nd/3rd round value around picks {rank-5} to {rank+5}. Quality starter material."
-    
-    # Mid rounds (Ranks 51-100)
-    elif rank <= 100:
-        tier = "MID-ROUND PICK"
-        desc = f"Ranked #{rank}. Solid middle round option around picks {rank-10} to {rank+10}. Good bench depth or flex starter."
-    
-    # Late rounds (Ranks 101-200)
-    elif rank <= 200:
-        tier = "LATE ROUND VALUE"
-        desc = f"Ranked #{rank}. Late round pick around {rank-15} to {rank+15}. Deep league option or streaming candidate."
-    else:
-        tier = "DEEP SLEEPER"
-        desc = f"Ranked #{rank}. Very late pick or waiver wire target. Speculative add."
-    
-    # Add FPPM context
-    if fppm >= 1.0:
-        efficiency = "Elite efficiency (1+ FPPM)."
-    elif fppm >= 0.85:
-        efficiency = "Excellent efficiency (0.85+ FPPM)."
-    elif fppm >= 0.70:
-        efficiency = "Good efficiency (0.70+ FPPM)."
-    else:
-        efficiency = "Lower efficiency for the rank."
-    
-    return f"{tier}: {desc} {efficiency}"
 
 def create_materialized_embeddings():
     """Create and save materialized embeddings for fast loading"""

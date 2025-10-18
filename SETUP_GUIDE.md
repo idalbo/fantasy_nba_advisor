@@ -10,6 +10,20 @@ Prerequisites
 - Internet access (for initial data ingestion)
 - LLM API key (Groq by default; you can swap for another provider — see notes)
 
+Before you start
+-----------------
+1) Create a Groq API key
+
+  - Visit https://console.groq.com and create an account (if you don't have one).
+  - Generate an API key and copy it.
+  - Create a local `.env` file from `.env.example` and add:
+
+```bash
+GROQ_API_KEY=your_groq_api_key_here
+```
+
+  Keep `.env` local and never commit it to the repository.
+
 Quick start — Docker (recommended)
 ---------------------------------
 1. Clone and prepare:
@@ -88,7 +102,6 @@ Where to look in the code
 
 If you hit blockers, please open an issue on the repository or contact the maintainer via the Issues page.
 ```
-
 #### 2. Data Ingestion Fails
 **Problem:** Qdrant connection issues
 ```bash

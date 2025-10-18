@@ -12,6 +12,7 @@ from groq import Groq
 import logging
 from typing import List, Dict, Any
 from dotenv import load_dotenv
+from src.draft_context import build_draft_context
 
 # Load environment variables
 load_dotenv()
@@ -198,6 +199,11 @@ class FantasyNBARag:
             # Load metadata
             with open(metadata_file, 'r') as f:
                 player_data = json.load(f)
+            # Cache loaded player data for helper lookups
+            try:
+                self._cached_player_data = player_data
+            except Exception:
+                pass
             
             # Verify data consistency
             embeddings = embedding_data['embeddings']
@@ -288,9 +294,9 @@ class FantasyNBARag:
                 # Create enriched searchable text with draft context
                 rank = player.get('fantasy_rank', player.get('overall_rank', 999))
                 fppm = player.get('fppm', 0)
-                
-                # Build draft position context based on rank
-                draft_context = self._build_draft_context(rank, fppm, player.get('position', ''))
+
+                # Build draft position context using shared helper (league-aware)
+                draft_context = build_draft_context(rank, fppm, player.get('position', ''), league_size=self.league_size)
                 
                 # Create searchable text with rank information embedded
                 text = f"{player.get('player_name', '')} {player.get('position', '')} {player.get('team', '')} "
@@ -348,6 +354,126 @@ class FantasyNBARag:
         # If no data file available, return empty list (will cause error)
         logger.error("No player data file found")
         return []
+
+    def _player_names_near_rank(self, rank: int, window: int = 2, limit: int = 3) -> str:
+        """Return a space-separated string of player names near a given rank.
+
+        This reads from the same JSON player data used for ingestion, and finds
+        players whose `fantasy_rank` or `overall_rank` is within `rank ± window`.
+        Returns up to `limit` names joined by spaces, or an empty string if none.
+        """
+        try:
+            data = None
+            # Try previously loaded player data if present on the instance
+            if hasattr(self, '_cached_player_data') and self._cached_player_data:
+                data = self._cached_player_data
+            else:
+                # Attempt to load player data from disk once and cache it
+                player_data = self._load_player_data()
+                self._cached_player_data = player_data
+                data = player_data
+
+            if not data:
+                return ''
+
+            nearby = []
+            min_rank = max(1, rank - window)
+            max_rank = rank + window
+
+            for player in data:
+                p_rank = player.get('fantasy_rank') or player.get('overall_rank') or None
+                if p_rank is None:
+                    continue
+                try:
+                    p_rank = int(p_rank)
+                except:
+                    continue
+
+                if min_rank <= p_rank <= max_rank:
+                    name = player.get('player_name') or player.get('name')
+                    if name:
+                        nearby.append(name)
+
+                if len(nearby) >= limit:
+                    break
+
+            return ' '.join(nearby)
+        except Exception:
+            return ''
+
+    def _top_player_names(self, limit: int = 5) -> str:
+        """Return top `limit` player names based on fantasy_rank (lowest rank first)."""
+        try:
+            data = getattr(self, '_cached_player_data', None) or self._load_player_data()
+            if not data:
+                return ''
+
+            # Sort by fantasy_rank/overall_rank ascending
+            def rank_key(p):
+                r = p.get('fantasy_rank') or p.get('overall_rank') or 9999
+                try:
+                    return int(r)
+                except:
+                    return 9999
+
+            sorted_players = sorted(data, key=rank_key)
+            names = [p.get('player_name') or p.get('name') for p in sorted_players[:limit] if (p.get('player_name') or p.get('name'))]
+            return ' '.join(names)
+        except Exception:
+            return ''
+
+    def _player_names_in_range(self, start_rank: int, end_rank: int, limit: int = 6) -> str:
+        """Return up to `limit` player names whose ranks fall in [start_rank, end_rank]."""
+        try:
+            data = getattr(self, '_cached_player_data', None) or self._load_player_data()
+            if not data:
+                return ''
+
+            results = []
+            for p in data:
+                r = p.get('fantasy_rank') or p.get('overall_rank') or None
+                if r is None:
+                    continue
+                try:
+                    r = int(r)
+                except:
+                    continue
+                if start_rank <= r <= end_rank:
+                    name = p.get('player_name') or p.get('name')
+                    if name:
+                        results.append(name)
+                if len(results) >= limit:
+                    break
+
+            return ' '.join(results)
+        except Exception:
+            return ''
+
+    def _player_names_by_position(self, position: str, limit: int = 6) -> str:
+        """Return up to `limit` player names who play the given position (by minutes/games)."""
+        try:
+            data = getattr(self, '_cached_player_data', None) or self._load_player_data()
+            if not data:
+                return ''
+
+            # Filter players by position substring match and sort by games/minutes if available
+            candidates = [p for p in data if position.upper() in (p.get('position') or '').upper()]
+            # Sort by minutes, games, or fallback to rank
+            def sort_key(p):
+                minutes = p.get('minutes_per_game') or p.get('mpg') or 0
+                games = p.get('games') or p.get('games_played') or 0
+                rank = p.get('fantasy_rank') or p.get('overall_rank') or 9999
+                try:
+                    rank = int(rank)
+                except:
+                    rank = 9999
+                return (-minutes, -games, rank)
+
+            candidates_sorted = sorted(candidates, key=sort_key)
+            names = [p.get('player_name') or p.get('name') for p in candidates_sorted[:limit] if (p.get('player_name') or p.get('name'))]
+            return ' '.join(names)
+        except Exception:
+            return ''
     
     def _expand_query(self, query: str) -> str:
         """
@@ -368,13 +494,17 @@ class FantasyNBARag:
         if 'first overall' in query_lower or 'go first' in query_lower or 'number one' in query_lower or '#1' in query_lower:
             # Treat as pick #1 and add top player names explicitly
             pick_patterns = [(r'.*', lambda m: 1)]  # Force pick #1
-            # Add elite player names for better vector matching
-            expanded_parts.append("Jokic Giannis Shai Davis Wembanyama")
+            # Add current top player names from data for better vector matching
+            top_names = self._top_player_names(limit=5)
+            if top_names:
+                expanded_parts.append(top_names)
         
         # Special handling for elite/best/top queries  
         if ('elite' in query_lower or 'best' in query_lower or 'top' in query_lower) and 'pick' not in query_lower:
             # Add top player names only
-            expanded_parts.append("Jokic Giannis Shai Davis Wembanyama")
+            top_names = self._top_player_names(limit=5)
+            if top_names:
+                expanded_parts.append(top_names)
         
         for pattern, extractor in pick_patterns:
             match = re.search(pattern, query_lower)
@@ -394,7 +524,9 @@ class FantasyNBARag:
                     expanded_parts.append(f"rank number {pick_num}")
                     # Add names only for top 5
                     if pick_num <= 5:
-                        expanded_parts.append("Jokic Giannis Shai Davis Wembanyama")
+                        top_names = self._top_player_names(limit=5)
+                        if top_names:
+                            expanded_parts.append(top_names)
                     # MINIMAL surrounding ranks (just ±2)
                     for i in range(max(1, pick_num-2), min(16, pick_num+3)):
                         if i != pick_num:  # Don't duplicate target
@@ -420,22 +552,11 @@ class FantasyNBARag:
                     expanded_parts.append(f"ranked #{pick_num}")
                     expanded_parts.append(f"rank number {pick_num}")
                     
-                    # ADD ACTUAL PLAYER NAMES at specific ranks for stronger matching
-                    mid_round_players = {
-                        40: "Josh Giddey Jakob Poeltl Miles Bridges",
-                        42: "Miles Bridges Jarrett Allen",
-                        43: "Josh Giddey",
-                        44: "Jakob Poeltl",
-                        45: "Miles Bridges Jarrett Allen De'Aaron Fox",
-                        46: "Jarrett Allen",
-                        47: "De'Aaron Fox",
-                        48: "Herbert Jones",
-                        50: "Jimmy Butler Terry Rozier",
-                        55: "Dejounte Murray",
-                        60: "Julius Randle Jaylen Brown",
-                    }
-                    if pick_num in mid_round_players:
-                        expanded_parts.append(mid_round_players[pick_num])
+                    # Dynamically add nearby player names for stronger matching.
+                    # Avoid hardcoded names — look up current players near the target rank
+                    names_at_rank = self._player_names_near_rank(pick_num, window=2, limit=4)
+                    if names_at_rank:
+                        expanded_parts.append(names_at_rank)
                     
                     # MINIMAL range (±4, every other rank)
                     for i in range(max(20, pick_num-4), min(65, pick_num+5), 2):
@@ -474,21 +595,30 @@ class FantasyNBARag:
             for i in range(1, round_1_end + 1, step):
                 expanded_parts.append(f"Fantasy Rank #{i}")
             # Add top player names for better matching
-            expanded_parts.append("Jokic Giannis Shai Davis Wembanyama Doncic Towns Tatum")
+            top_names = self._top_player_names(limit=8)
+            if top_names:
+                expanded_parts.append(top_names)
         
         elif 'second round' in query_lower:
             expanded_parts.append('SECOND ROUND VALUE solid starters quality picks')
             step = max(2, self.league_size // 5)
             for i in range(round_1_end + 1, round_2_end + 1, step):
                 expanded_parts.append(f"Fantasy Rank #{i}")
-            expanded_parts.append("Anthony Edwards Bam Adebayo Paul George Jarrett Allen")
+            # Use top players for the second round instead of hardcoded names
+            second_round_names = self._player_names_in_range(round_1_end + 1, round_2_end, limit=6)
+            if second_round_names:
+                expanded_parts.append(second_round_names)
         
         elif 'third round' in query_lower:
             expanded_parts.append('THIRD ROUND 3RD ROUND quality depth rotation starters')
             step = max(2, self.league_size // 5)
             for i in range(round_2_end + 1, round_3_end + 1, step):
                 expanded_parts.append(f"Fantasy Rank #{i}")
-            expanded_parts.append("De'Aaron Fox Jaren Jackson Mikal Bridges Darius Garland")
+            # Add example names from the middle of the third round
+            mid_rank = (round_2_end + round_3_end) // 2
+            mid_names = self._player_names_near_rank(mid_rank, window=3, limit=5)
+            if mid_names:
+                expanded_parts.append(mid_names)
         
         elif 'fourth round' in query_lower:
             expanded_parts.append('FOURTH ROUND 4TH ROUND solid depth bench upside')
@@ -506,7 +636,9 @@ class FantasyNBARag:
             expanded_parts.append('EARLY PICK elite first round top consensus elite tier')
             for i in range(1, min(11, round_1_end + 1)):
                 expanded_parts.append(f"Fantasy Rank #{i}")
-            expanded_parts.append("Jokic Giannis Shai Davis Wembanyama")
+            top_names = self._top_player_names(limit=5)
+            if top_names:
+                expanded_parts.append(top_names)
         
         elif 'late pick' in query_lower or 'late round' in query_lower:
             expanded_parts.append('LATE ROUND deep league waiver wire streaming sleeper')
@@ -548,9 +680,10 @@ class FantasyNBARag:
             for i in range(sleeper_start, min(sleeper_end, 200), step):
                 expanded_parts.append(f"Fantasy Rank #{i}")
             
-            # Add example sleeper-type players (typically ranks 60-150)
-            expanded_parts.append("Amen Thompson Tari Eason Jaime Jaquez Santi Aldama")
-            expanded_parts.append("Derrick White Jordan Clarkson Cason Wallace Isaiah Hartenstein")
+            # Add example sleeper-type players drawn from sleeper territory
+            sleeper_names = self._player_names_in_range(sleeper_start, min(sleeper_end, 200), limit=8)
+            if sleeper_names:
+                expanded_parts.append(sleeper_names)
         else:
             # Apply other quality term expansions
             for quality_term, expansion in quality_expansions.items():
@@ -577,9 +710,13 @@ class FantasyNBARag:
                 # If combined with round/pick terms, add relevant player examples
                 if 'first round' in query_lower or 'elite' in query_lower or 'best' in query_lower:
                     if pos_term in ['center', 'c']:
-                        expanded_parts.append("Jokic Davis Wembanyama Towns Sabonis Embiid")
+                        center_names = self._player_names_by_position('C', limit=6)
+                        if center_names:
+                            expanded_parts.append(center_names)
                     elif pos_term in ['point guard', 'pg']:
-                        expanded_parts.append("Shai Doncic Cunningham Harden")
+                        pg_names = self._player_names_by_position('PG', limit=6)
+                        if pg_names:
+                            expanded_parts.append(pg_names)
                 break
         
         # Join all parts with spaces
@@ -1009,6 +1146,8 @@ class FantasyNBARag:
         """
         # Build context from search results - show MORE players for better LLM reasoning
         context = ""
+        # Also build a concise candidate list to strictly constrain recommendations
+        candidate_names = []
         for i, result in enumerate(search_results[:30], 1):  # Show top 30 for diverse rank coverage
             # Extract data from either metadata structure or direct fields
             metadata = result.get('metadata', result)
@@ -1028,6 +1167,8 @@ class FantasyNBARag:
             name = metadata.get('name', metadata.get('Name', 'Unknown'))
             position = metadata.get('position', metadata.get('Position', 'Unknown'))
             team = metadata.get('team', metadata.get('Team', 'Unknown'))
+            # Collect concise candidate name list for strict prompting
+            candidate_names.append(name)
             
             # Calculate FPPG for display
             fppg = fantasy_points if fantasy_points > 0 else fppm * minutes_per_game
@@ -1041,7 +1182,7 @@ Player {i}: {name} ({position}, {team}) - Rank #{overall_rank}
 
 """
 
-        # Natural, conversational prompt for fantasy basketball advice
+    # Natural, conversational prompt for fantasy basketball advice
         prompt_template = """
 You're a fantasy basketball expert helping someone with their draft. Be conversational and helpful!
 
@@ -1061,6 +1202,8 @@ Important context about fantasy rankings and draft picks:
 CRITICAL: When someone says "pick 16" or "16th pick", they mean the 16th pick OVERALL, not a specific round.
 - Pick #16 overall = roughly rank #11-21 players
 - Don't confuse this with "16th pick in round 2" which would be pick #28+ overall
+- A round is defined by the league size (e.g., 16-team league: round 1 = picks 1-16, round 2 = picks 17-32, etc.)
+- If a user asks for a third round pick in a 12-team league, that means picks #25-36 overall
 
 Your response should:
 1. Answer naturally and directly
@@ -1069,15 +1212,21 @@ Your response should:
 4. Include key stats (FPPG, FPPM) when relevant
 5. Focus ONLY on the players shown above whose ranks match
 
+STRICT RULE (ENFORCE): Below is a concise bullet list of the candidate players the system retrieved. You MUST ONLY recommend players from this list. Do NOT invent or add any other player names. If none of the retrieved players are suitable for the pick, reply exactly: "No valid players found in the retrieved set." Do not provide alternative invented suggestions.
+
 Keep it conversational - imagine you're texting advice to a friend who's drafting right now!
 
 Your advice:
         """.strip()
 
+        # Add the concise candidate list into the prompt
+        concise_list = '\n'.join([f"- {n}" for n in candidate_names[:30]])
         num_players = len(search_results[:30])
-        return prompt_template.format(query=query, context=context, num_players=num_players)
+        full_prompt = prompt_template.format(query=query, context=context, num_players=num_players)
+        full_prompt = full_prompt + "\n\nRetrieved Candidates:\n" + concise_list + "\n\n"
+        return full_prompt
 
-    def llm(self, prompt: str) -> str:
+    def llm(self, prompt: str, temperature: float = 0.7) -> str:
         """
         Generate response using Groq LLM
         """
@@ -1114,7 +1263,7 @@ Your advice:
                 model="llama-3.1-8b-instant",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1024,
-                temperature=0.7
+                temperature=temperature
             )
             
             return response.choices[0].message.content
@@ -1142,7 +1291,13 @@ Your advice:
             
             # Build prompt and generate response
             prompt = self.build_prompt(query, search_results)
-            answer = self.llm(prompt)
+
+            # If this looks like a draft query, enforce low temperature
+            draft_terms = ['draft', 'pick', '14th', '15th', 'sleeper', 'value']
+            is_draft = any(term in query.lower() for term in draft_terms)
+            temp = 0.0 if is_draft else 0.7
+
+            answer = self.llm(prompt, temperature=temp)
             
             return answer, search_results
             

@@ -43,7 +43,7 @@ RealtimeMonitor = None
 import_success = False
 
 try:
-    from rag import FantasyNBARag
+    from src.rag import FantasyNBARag
     logger.info("✅ Using vector-based RAG system")
     import_success = True
 except ImportError as e:
@@ -57,7 +57,7 @@ try:
     logger.info("✅ Monitoring system loaded")
 except ImportError:
     try:
-        from realtime_monitoring import RealtimeMonitor
+        from src.realtime_monitoring import RealtimeMonitor
         logger.info("✅ Monitoring system loaded")
     except ImportError as e:
         logger.warning(f"⚠️ Monitoring not available: {e}")
@@ -754,6 +754,46 @@ def show_system_evaluation():
                         
                         # Run each test 3 times for average
                         for _ in range(3):
+                            # --- Lazy-run retrieval evaluator ---
+                            st.divider()
+                            st.subheader("🧩 Optional: Run Retrieval Evaluator")
+                            st.write("Run a quick evaluator that tests retrieval methods. This is optional and requires extra packages (sentence-transformers, numpy).")
+                            if st.button("Run Quick Evaluator"):
+                                with st.spinner("Running evaluator (quick subset)..."):
+                                    try:
+                                        # Lazy import to avoid import-time dependency failures
+                                        from src.retrieval_evaluator import RetrievalEvaluator
+
+                                        # Instantiate with None or the actual qdrant client if available
+                                        evaluator = RetrievalEvaluator(getattr(st.session_state.rag_system, 'qdrant_client', None))
+
+                                        # Run a lightweight evaluation (retrieval methods only)
+                                        eval_results = evaluator.evaluate_retrieval_methods()
+
+                                        # Summarize results in a dataframe-like display
+                                        summary_rows = []
+                                        for method, metrics in eval_results.items():
+                                            summary_rows.append({
+                                                'method': method,
+                                                'avg_precision': metrics.get('avg_precision'),
+                                                'avg_recall': metrics.get('avg_recall'),
+                                                'avg_f1': metrics.get('avg_f1_score'),
+                                                'avg_response_time': metrics.get('avg_response_time')
+                                            })
+
+                                        if summary_rows:
+                                            import pandas as pd
+                                            df = pd.DataFrame(summary_rows)
+                                            st.success("Evaluator completed — showing quick summary")
+                                            st.dataframe(df, use_container_width=True)
+                                        else:
+                                            st.info("Evaluator returned no results")
+
+                                    except Exception as e:
+                                        # Provide actionable guidance if dependencies missing
+                                        err_str = str(e)
+                                        st.error(f"Evaluator failed: {err_str}")
+                                        st.info("If the error is due to missing optional packages, install them locally:\n pip install sentence-transformers numpy")
                             try:
                                 start = time.time()
                                 result = test_func()

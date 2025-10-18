@@ -49,26 +49,32 @@ Reviewer note: reviewers — see the top-level `SETUP_GUIDE.md` for run instruct
 
 Quick links
 -----------
+- Data sources: `DATA_SOURCES.md`
 - Setup guide (detailed): `SETUP_GUIDE.md`
-- Reviewer guide: `REVIEWER_GUIDE.md`
 - Code: `app.py`, `src/` (core modules)
 
 Project structure (high level)
 -----------------------------
 ```
 fantasy_nba_advisor/
-├── app.py                     # Streamlit UI
+├── app.py                     # Streamlit UI entry
 ├── src/
+│   ├── __init__.py
 │   ├── rag.py                 # Retrieval + prompt builder
 │   ├── realtime_monitoring.py # Logging & hit-rate computation
 │   ├── data_ingestion.py      # Scrapers / ingestion scripts
-│   └── retrieval_evaluator.py # Retrieval/LLM evaluation helpers
-├── data/                      # Materialized embeddings & metadata
+│   ├── retrieval_evaluator.py # Evaluation helpers
+│   └── nba_players.db         # small local DB used by scripts
+├── data/                      # Materialized embeddings & metadata (in .gitignore)
 ├── monitoring/                # JSONL logs for queries and feedback
+├── .env.example               # Example env vars
+├── DATA_SOURCES.md            # Data source documentation
 ├── docker-compose.yml
 ├── Dockerfile
 ├── Makefile
 ├── requirements.txt
+├── requirements_docker.txt
+├── requirements_streamlit.txt
 └── SETUP_GUIDE.md
 ```
 

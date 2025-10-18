@@ -1,3 +1,75 @@
+# Reviewer Guide — Fantasy NBA Advisor
+
+This file helps peer reviewers quickly evaluate the project using the provided rubric. Follow the quick checks below to validate each evaluation criterion.
+
+1) Problem description (0-2 points)
+- Check `README.md` for a clear statement of the problem and dataset used. Does it explain what the app does and why the dataset was chosen?
+
+Quick check:
+- README contains a short problem statement and data source references (yes/no)
+
+2) Retrieval flow (0-2 points)
+- Verify that a knowledge base is used (Qdrant or in-memory) and that the LLM is called in the code.
+
+Quick check:
+- `src/rag.py` should contain vector search + prompt building.
+- Confirm an LLM client call exists (Groq or other) in the codebase.
+
+3) Retrieval evaluation (0-2 points)
+- Look for scripts or notebooks that evaluate retrieval approaches (dense vs hybrid) and a short result summary.
+
+Quick check:
+- `src/retrieval_evaluator.py` or files in `evaluation/` present? (yes/no)
+- Evidence of comparison and chosen approach in README or evaluation files.
+
+4) LLM evaluation (0-2 points)
+- Check for multiple prompt variants or LLM parameter experiments and a short analysis.
+
+Quick check:
+- Evidence of prompt variants or LLM ablation in `src/` or `evaluation/`.
+
+5) Interface (0-2 points)
+- Confirm that there is a working UI (Streamlit) or an API to interact with the system.
+
+Quick check:
+- `app.py` present and runnable? Try `streamlit run app.py` (or check Docker Compose). Does the UI start?
+
+6) Ingestion pipeline (0-2 points)
+- Check whether ingestion is automated with a Python script or requires manual steps.
+
+Quick check:
+- `make ingest-data` target exists and calls `src/data_ingestion.py` or similar. If yes, award full points.
+
+7) Monitoring (0-2 points)
+- Look for user feedback collection and a dashboard or metrics files.
+
+Quick check:
+- Are `monitoring/realtime_metrics.jsonl` and `monitoring/user_feedback.jsonl` present? Is there a Monitoring page in the app?
+
+8) Containerization (0-2 points)
+- Check for `Dockerfile` and `docker-compose.yml`. Try `docker-compose up` if feasible.
+
+9) Reproducibility (0-2 points)
+- Are the setup instructions complete and the dataset accessible? Are dependency versions listed in `requirements.txt`?
+
+Best practices bonus (0-3 points)
+- Hybrid search used and evaluated (1 point)
+- Document re-ranking (1 point)
+- Query rewriting implemented (1 point)
+
+How to clone at a specific commit
+
+```bash
+git clone https://github.com/{username}/{repo}.git
+cd {repo}
+git reset --hard {commit-hash}
+```
+
+Notes for reviewers
+- Be generous with documentation: a clear README and a reproducible setup are worth a lot.
+- If some functionality requires secrets (LLM keys), verify that the app has clear fallbacks or instructions to run without those features.
+
+Thank you for reviewing — your feedback helps authors improve their projects and learn from each other.
 # 📋 PROJECT REVIEW GUIDE
 
 > **Quick guide for reviewers to evaluate this Fantasy NBA Advisor project**

@@ -1,201 +1,92 @@
-# Fantasy NBA Advisor - Setup Guide
+---
+# Fantasy NBA Advisor — Setup Guide
 
-## 🚀 Quick Start
+This guide walks you through running the project locally (Docker and non-Docker workflows), ingesting data, and troubleshooting the most common issues. It assumes no prior knowledge of the course material.
 
-### Prerequisites
-- Docker and Docker Compose installed
-- Internet connection for data scraping
-- Groq API key (free from [console.groq.com](https://console.groq.com))
+Prerequisites
+-------------
+- Git
+- Docker & Docker Compose (recommended) OR Python 3.10+ and pip
+- Internet access (for initial data ingestion)
+- LLM API key (Groq by default; you can swap for another provider — see notes)
 
-### Installation (5 minutes)
+Quick start — Docker (recommended)
+---------------------------------
+1. Clone and prepare:
+
 ```bash
-# 1. Clone the repository
 git clone https://github.com/idalbo/fantasy_nba_advisor.git
 cd fantasy_nba_advisor
-
-# 2. Configure environment variables
 cp .env.example .env
-# Edit .env file with your Groq API key
-
-# 3. Start the application
-make ingest-data    # First time only (ingests NBA data)
-make project-run    # Starts the application
-
-# 4. Access the application
-open http://localhost:8504
+# Edit .env and set GROQ_API_KEY (do NOT commit your .env)
 ```
 
-## 💻 System Requirements
-
-- **RAM:** 4GB minimum, 8GB recommended
-- **Storage:** 2GB free space
-- **Docker:** 20.0+ with Docker Compose
-- **Web Browser:** Chrome, Firefox, Safari, or Edge
-
-## 🔧 Detailed Setup Instructions
-
-### Step 1: Environment Setup
-
-1. **Clone the Repository**
-   ```bash
-   git clone https://github.com/idalbo/fantasy_nba_advisor.git
-   cd fantasy_nba_advisor
-   ```
-
-2. **Create Environment File**
-   ```bash
-   cp .env.example .env
-   ```
-
-3. **Edit Environment Variables**
-   Open `.env` in your preferred editor and configure:
-   ```properties
-   # Required - Get from https://console.groq.com
-   GROQ_API_KEY=your_groq_api_key_here
-   
-   # Optional - Default values work for Docker setup
-   QDRANT_HOST=localhost
-   QDRANT_PORT=6333
-   DEBUG=true
-   LOG_LEVEL=INFO
-   ```
-
-### Step 2: Data Ingestion
-
-The system requires NBA player data to function. Run this once:
+2. Ingest data (one-time) and start the app:
 
 ```bash
-make ingest-data
+make ingest-data   # starts Qdrant and populates the vector DB
+make project-run   # starts Streamlit and supporting services
 ```
 
-This command will:
-- Start Qdrant vector database
-- Scrape NBA statistics from Basketball Reference
-- Process and index 450+ NBA players
-- Calculate Fantasy Points Per Minute (FPPM) for each player
-- Store everything in the vector database
+3. Open the app: http://localhost:8504
 
-**Expected Output:**
-```
-✅ Started Qdrant vector database
-✅ Scraped 450+ NBA players from Basketball Reference
-✅ Calculated FPPM and fantasy rankings
-✅ Indexed all data in vector database
-✅ Data ingestion completed successfully
-```
-
-### Step 3: Start the Application
+Run without Docker (developer mode)
+----------------------------------
+1. Create a venv and install deps:
 
 ```bash
-make project-run
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+# set GROQ_API_KEY in .env or export as env var
 ```
 
-This starts:
-- Qdrant vector database (if not already running)
-- Streamlit web application on port 8504
+2. Run the app:
 
-### Step 4: Access and Configure
-
-1. **Open your browser** to [http://localhost:8504](http://localhost:8504)
-
-2. **Enter your Groq API key** in the sidebar
-   - The application works without an API key for browsing data
-   - AI chat features require a valid Groq API key
-
-3. **Start using the application!**
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `GROQ_API_KEY` | Yes | None | Your Groq API key for LLM features |
-| `QDRANT_HOST` | No | localhost | Qdrant vector database host |
-| `QDRANT_PORT` | No | 6333 | Qdrant vector database port |
-| `DEBUG` | No | true | Enable debug logging |
-| `LOG_LEVEL` | No | INFO | Logging level (DEBUG, INFO, WARNING, ERROR) |
-
-### Docker Configuration
-
-The application uses Docker Compose with these services:
-
-```yaml
-services:
-  qdrant:
-    image: qdrant/qdrant:latest
-    ports:
-      - "6335:6333"
-  
-  fantasy-nba:
-    build: .
-    ports:
-      - "8504:8501"
-    depends_on:
-      - qdrant
-```
-
-## 📚 Usage Examples
-
-### Sample Queries
-
-1. **Draft Position Queries**
-   ```
-   "Who should I pick at position 10?"
-   "What are good mid-round targets around pick 50?"
-   ```
-
-2. **Player Filtering**
-   ```
-   "luka and wemby are already taken, who should I pick?"
-   "giannis is off the board, show me alternatives"
-   ```
-
-3. **Elite Player Analysis**
-   ```
-   "Who are the top 5 players this season?"
-   "Best centers for fantasy basketball"
-   ```
-
-4. **Value Detection**
-   ```
-   "Who are some sleepers I should bet on?"
-   "Show me undervalued players with injury concerns"
-   ```
-
-## 📁 File Structure
-
-```
-fantasy_nba_advisor/
-├── src/
-│   ├── rag.py                      # Core RAG logic with draft intelligence
-│   ├── app.py                      # Streamlit application interface
-│   ├── data_ingestion.py           # NBA data scraping and processing
-│   └── retrieval_evaluator.py      # In-app evaluation functionality
-├── evaluation/
-│   └── comprehensive_evaluation.py # Standalone testing script
-├── streamlit_app.py                # Streamlit Cloud entry point
-├── rag_cloud.py                    # Cloud-compatible RAG system
-├── cli.py                          # Command-line interface
-├── docker-compose.yml              # Container orchestration
-├── Dockerfile                      # Application container definition
-├── requirements.txt                # Python dependencies (Cloud)
-├── requirements_docker.txt         # Python dependencies (Docker)
-├── .env                            # Environment variables (create from .env.example)
-├── README.md                       # User documentation
-└── Makefile                        # Build and run commands
-```
-
-## 🛠️ Troubleshooting
-
-### Common Issues
-
-#### 1. Application Won't Start
-**Problem:** Port conflicts
 ```bash
-# Solution: Check if ports are in use
-docker-compose down
-make project-run
+streamlit run app.py
+```
+
+Ingestion details
+-----------------
+- `make ingest-data` orchestrates starting Qdrant (docker-compose) and running the ingestion script that:
+  - scrapes Basketball Reference for player stats and metadata
+  - computes embeddings and fantasy features
+  - indexes vectors and payloads into Qdrant
+- Manual ingestion: `python src/data_ingestion.py --help` (see script flags)
+
+Configuration
+-------------
+- `.env` (local only): set `GROQ_API_KEY`, `QDRANT_HOST`, `QDRANT_PORT`, `DEBUG`, and `LOG_LEVEL`.
+- Makefile targets: `ingest-data`, `project-run`, `stop`, `clean`, `build`.
+
+Monitoring & feedback
+---------------------
+- Query logs: `monitoring/realtime_metrics.jsonl`
+- Feedback: `monitoring/user_feedback.jsonl`
+- Use the Monitoring page in the Streamlit app to visualize hit rates, latencies, and top queries.
+
+Troubleshooting (common)
+------------------------
+- App not reachable: check `docker-compose ps` and open `http://localhost:8504`.
+- Ingestion fails: restart Qdrant (`docker-compose up -d qdrant`) and run `make ingest-data` again.
+- No AI responses: confirm `GROQ_API_KEY` is set and valid.
+
+Success checklist
+-----------------
+- [ ] App runs at `http://localhost:8504`
+- [ ] Data ingestion completed and vectors indexed
+- [ ] Retrieval returns sensible players for draft queries
+- [ ] Monitoring logs populated with queries and feedback
+
+Where to look in the code
+-------------------------
+- Retrieval & prompts: `src/rag.py`
+- Data ingestion: `src/data_ingestion.py`
+- Monitoring & logging: `src/realtime_monitoring.py` and `monitoring/` files
+
+If you hit blockers, please open an issue on the repository or contact the maintainer via the Issues page.
 ```
 
 #### 2. Data Ingestion Fails

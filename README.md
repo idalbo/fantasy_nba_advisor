@@ -34,97 +34,111 @@ docker-compose up
 
 Access at `http://localhost:8504`
 
-### Run Locally
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Set your API key
-export GROQ_API_KEY=your_key_here
-
-# Run the app
-streamlit run app.py
-```
-
-## Project Structure
-
-```
-### 3. RAG Pipeline
-3. Rank-based filtering (±5 range)
 # 🏀 Fantasy NBA Advisor
 
-Lightweight Streamlit app that provides fantasy basketball draft assistance using a vector search backend.
+Lightweight RAG (retrieval-augmented generation) demo that provides fantasy basketball draft advice.
 
-Live demo: https://fantasy-nba-advisor.streamlit.app/
+Live demo: https://fantasy-nba-advisor.streamlit.app/ (Streamlit)
 
-Key components
----------------
-- `app.py` — Streamlit UI and navigation
-- `src/rag.py` — Retrieval + ranking (hybrid vector + keyword search)
-- `src/realtime_monitoring.py` — Real-time metrics logger
-- `src/data_ingestion.py` — Scrapers / data loaders
-- `data/` — Materialized embeddings and metadata (`player_embeddings.pkl`, `player_metadata.json`)
-- `monitoring/` — Interaction and feedback logs
-- `docker-compose.yml`, `Dockerfile` — Docker deployment
-- `requirements*.txt` — Python dependencies
+Overview
+--------
+- Purpose: help fantasy managers pick better in drafts by combining a knowledge base of NBA player data with an LLM-backed assistant.
+- Key idea: hybrid retrieval (semantic vectors + keyword re-ranking) + rank-aware prompt filtering for pick-specific advice.
 
-Quick start (Docker)
----------------------
-1. Create a local `.env` with your Groq API key:
+Core evaluation checklist (what reviewers look for)
+--------------------------------------------------
+Each reviewer should be able to verify these points quickly:
 
-```bash
-GROQ_API_KEY=your_groq_api_key
-QDRANT_HOST=localhost
-QDRANT_PORT=6335
+- Problem description: clear statement of what the app does and the dataset used.
+- Retrieval flow: evidence that a knowledge base + LLM were used (code + short explanation).
+- Retrieval evaluation: comparison or notes on at least two retrieval strategies (dense vs hybrid or other).
+- LLM evaluation: simple ablation or prompt variants tested and results described.
+- Interface: a working UI (Streamlit) or API to interact with the system.
+- Ingestion: script or Makefile target that ingests the dataset into the KB.
+- Monitoring & feedback: logs or dashboard that records user feedback and runtime metrics.
+- Containerization & reproducibility: Docker/Docker Compose and clear setup instructions.
+
+Quick links
+-----------
+- Setup guide (detailed): `SETUP_GUIDE.md`
+- Reviewer guide: `REVIEWER_GUIDE.md`
+- Code: `app.py`, `src/` (core modules)
+
+Project structure (high level)
+-----------------------------
+```
+fantasy_nba_advisor/
+├── app.py                     # Streamlit UI
+├── src/
+│   ├── rag.py                 # Retrieval + prompt builder
+│   ├── realtime_monitoring.py # Logging & hit-rate computation
+│   ├── data_ingestion.py      # Scrapers / ingestion scripts
+│   └── retrieval_evaluator.py # Retrieval/LLM evaluation helpers
+├── data/                      # Materialized embeddings & metadata
+├── monitoring/                # JSONL logs for queries and feedback
+├── docker-compose.yml
+├── Dockerfile
+├── Makefile
+├── requirements.txt
+└── SETUP_GUIDE.md
 ```
 
-2. Start services:
+Quick start (recommended: Docker)
+---------------------------------
+1) Clone the repo:
 
 ```bash
-docker-compose up --build
+git clone https://github.com/idalbo/fantasy_nba_advisor.git
+cd fantasy_nba_advisor
 ```
 
-The app will be available at `http://localhost:8504` (configured in `docker-compose.yml`).
-
-Run locally (no Docker)
------------------------
-Install dependencies and run:
+2) Make a local `.env` (never commit your keys):
 
 ```bash
+cp .env.example .env
+# Edit .env and set GROQ_API_KEY (or other LLM provider keys)
+```
+
+3) Build and run everything (ingest data first time):
+
+```bash
+make ingest-data   # populates Qdrant with player vectors (one-time)
+make project-run   # start Streamlit + services
+```
+
+4) Open the app at http://localhost:8504
+
+Run locally without Docker
+--------------------------
+1) Create a virtualenv and install dependencies:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-export GROQ_API_KEY=your_groq_api_key
+```
+
+2) Set LLM API key and run the app:
+
+```bash
+export GROQ_API_KEY=your_key_here
 streamlit run app.py
 ```
 
-Monitoring and metrics
-----------------------
-- The app logs query-level metrics to `monitoring/realtime_metrics.jsonl` and user feedback to `monitoring/user_feedback.jsonl`.
-- Real-time hit-rate calculation is inferred from draft/round queries when possible.
+Monitoring & feedback
+---------------------
+- Logs: `monitoring/realtime_metrics.jsonl` (query logs) and `monitoring/user_feedback.jsonl` (feedback entries).
+- Dashboard: open the Monitoring page in the Streamlit app to view hit-rate, latency, and top queries.
 
-Project notes
--------------
-- Hybrid scoring combines semantic vector similarity with keyword matching (weights are in `src/rag.py`).
-- League size can be configured in the sidebar (affects draft round logic).
-- If you deploy to Streamlit Cloud, the app will use an in-memory Qdrant fallback unless a hosted Qdrant is provided.
+Where to look for the core pieces
+---------------------------------
+- Retrieval logic: `src/rag.py` (query expansion, vector search, keyword re-ranking, prompt builder).
+- Ingestion: `src/data_ingestion.py` and the `make ingest-data` target in the Makefile.
+- Evaluation helpers: `src/retrieval_evaluator.py` and `evaluation/` folder.
 
-Makefile
---------
-Common `make` targets are provided for convenience. Run from the project root:
+Contact & issues
+-----------------
+If you find problems, open an issue at https://github.com/idalbo/fantasy_nba_advisor/issues
 
-- `make help` — Show available targets
-- `make build` — Build Docker images (`docker-compose build`)
-- `make ingest-data` — Start Qdrant and run the ingestion script (uses Docker)
-- `make project-run` — Start the app via `docker-compose up -d`
-- `make stop` — Stop running containers (`docker-compose down`)
-- `make clean` — Remove containers and prune Docker system
-
-Example:
-
-```bash
-make ingest-data
-```
-
-Contact
--------
-Repository: https://github.com/idalbo/fantasy_nba_advisor
+---
+Short and focused — the detailed setup is in `SETUP_GUIDE.md` and reviewer instructions in `REVIEWER_GUIDE.md`.

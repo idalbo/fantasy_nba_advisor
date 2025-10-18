@@ -42,21 +42,10 @@ Live demo: https://fantasy-nba-advisor.streamlit.app/ (Streamlit)
 
 Overview
 --------
-- Purpose: help fantasy managers pick better in drafts by combining a knowledge base of NBA player data with an LLM-backed assistant.
-- Key idea: hybrid retrieval (semantic vectors + keyword re-ranking) + rank-aware prompt filtering for pick-specific advice.
+- Purpose: help fantasy managers pick better in drafts by combining a knowledge base of NBA player data with an AI assistant and fantasy points context.
+- Retrieval approach: semantic vector search combined with keyword re-ranking. Recommendations are filtered by draft pick range so results stay relevant to your pick.
 
-Core evaluation checklist (what reviewers look for)
---------------------------------------------------
-Each reviewer should be able to verify these points quickly:
-
-- Problem description: clear statement of what the app does and the dataset used.
-- Retrieval flow: evidence that a knowledge base + LLM were used (code + short explanation).
-- Retrieval evaluation: comparison or notes on at least two retrieval strategies (dense vs hybrid or other).
-- LLM evaluation: simple ablation or prompt variants tested and results described.
-- Interface: a working UI (Streamlit) or API to interact with the system.
-- Ingestion: script or Makefile target that ingests the dataset into the KB.
-- Monitoring & feedback: logs or dashboard that records user feedback and runtime metrics.
-- Containerization & reproducibility: Docker/Docker Compose and clear setup instructions.
+Reviewer note: reviewers — see the top-level `SETUP_GUIDE.md` for run instructions and check `src/rag.py`, `src/data_ingestion.py`, and `monitoring/` when evaluating.
 
 Quick links
 -----------
@@ -139,6 +128,3 @@ Where to look for the core pieces
 Contact & issues
 -----------------
 If you find problems, open an issue at https://github.com/idalbo/fantasy_nba_advisor/issues
-
----
-Short and focused — the detailed setup is in `SETUP_GUIDE.md` and reviewer instructions in `REVIEWER_GUIDE.md`.

@@ -50,153 +50,81 @@ streamlit run app.py
 ## Project Structure
 
 ```
-fantasy_nba_advisor/
-├── app.py                      # Main Streamlit application
-├── src/
-│   ├── rag.py                  # RAG system with hybrid search
-│   ├── data_ingestion.py       # NBA data scraper
-│   └── realtime_monitoring.py  # Usage analytics
-├── data/
-│   ├── player_embeddings.pkl   # Pre-computed vectors
-│   └── player_metadata.json    # Player data cache
-├── monitoring/                 # Interaction logs
-├── evaluation/                 # Performance tests
-├── docker-compose.yml          # Docker setup
-└── requirements.txt            # Python dependencies
-```
-
-## How It Works
-
-### 1. Data Collection
-Scrapes Basketball Reference for current season stats, fantasy rankings, and expert analysis.
-
-### 2. Hybrid Search
-Combines two search methods:
-- **Vector Search**: Semantic understanding using sentence embeddings (all-MiniLM-L6-v2)
-- **Keyword Matching**: Exact matches for names, positions, teams
-
-```python
-hybrid_score = (0.7 * vector_similarity) + (0.3 * keyword_score)
-```
-
 ### 3. RAG Pipeline
-1. Query expansion with basketball context
-2. Hybrid search retrieval
 3. Rank-based filtering (±5 range)
-4. LLM response generation (Groq/Llama 3.1)
+# 🏀 Fantasy NBA Advisor
 
-## Technical Details
+Lightweight Streamlit app that provides fantasy basketball draft assistance using a vector search backend.
 
-**LLM**: Groq API with Llama 3.1-8b-instant  
-**Vector DB**: Qdrant (in-memory for cloud, local Docker for development)  
-**Embeddings**: all-MiniLM-L6-v2 (384 dimensions)  
-**Framework**: Streamlit for UI, Docker for deployment  
+Live demo: https://fantasy-nba-advisor.streamlit.app/
 
-## Configuration
+Key components
+---------------
+- `app.py` — Streamlit UI and navigation
+- `src/rag.py` — Retrieval + ranking (hybrid vector + keyword search)
+- `src/realtime_monitoring.py` — Real-time metrics logger
+- `src/data_ingestion.py` — Scrapers / data loaders
+- `data/` — Materialized embeddings and metadata (`player_embeddings.pkl`, `player_metadata.json`)
+- `monitoring/` — Interaction and feedback logs
+- `docker-compose.yml`, `Dockerfile` — Docker deployment
+- `requirements*.txt` — Python dependencies
 
-Create a `.env` file:
+Quick start (Docker)
+---------------------
+1. Create a local `.env` with your Groq API key:
 
 ```bash
 GROQ_API_KEY=your_groq_api_key
 QDRANT_HOST=localhost
-QDRANT_PORT=6333
+QDRANT_PORT=6335
 ```
 
-Get a free Groq API key at [console.groq.com](https://console.groq.com/)
-
-## Usage Examples
-
-**Draft advice:**
-- "Who should I pick at #16?"
-- "Best centers for first round?"
-
-**Player comparisons:**
-- "Compare Jokic vs Embiid"
-- "Who's better for my team?"
-
-**Position analysis:**
-- "Top point guards available"
-- "Sleeper picks for late rounds"
-
-## Monitoring
-
-View analytics in the app sidebar:
-- Query volume over time
-- Response times
-- Popular queries
-- User feedback
-
-Logs stored in `monitoring/interactions_*.jsonl`
-
-## Testing
-
-The project includes evaluation tests for retrieval accuracy:
+2. Start services:
 
 ```bash
-python evaluation/comprehensive_evaluation.py
+docker-compose up --build
 ```
 
-Current metrics:
-- **Pass Rate**: 87.5%
-- **Hit Rate**: 71.2%
-- **Avg Response Time**: 0.21s
+The app will be available at `http://localhost:8504` (configured in `docker-compose.yml`).
 
-## Development
+Run locally (no Docker)
+-----------------------
+Install dependencies and run:
 
-### Add New Data Sources
-
-Edit `src/data_ingestion.py` to add scrapers for additional stats sites.
-
-### Modify Search Logic
-
-Update `src/rag.py`:
-- `_expand_query()` - Query enhancement
-- `_extract_metadata_filters()` - Filtering logic
-- `search()` - Hybrid search algorithm
-
-### Adjust League Settings
-
-Change default league size in `app.py` sidebar or pass to RAG:
-
-```python
-rag = FantasyNBARag(groq_api_key=api_key, league_size=16)
+```bash
+pip install -r requirements.txt
+export GROQ_API_KEY=your_groq_api_key
+streamlit run app.py
 ```
 
-## Docker Deployment
+Monitoring and metrics
+----------------------
+- The app logs query-level metrics to `monitoring/realtime_metrics.jsonl` and user feedback to `monitoring/user_feedback.jsonl`.
+- Real-time hit-rate calculation is inferred from draft/round queries when possible.
 
-The app includes a complete Docker setup:
+Project notes
+-------------
+- Hybrid scoring combines semantic vector similarity with keyword matching (weights are in `src/rag.py`).
+- League size can be configured in the sidebar (affects draft round logic).
+- If you deploy to Streamlit Cloud, the app will use an in-memory Qdrant fallback unless a hosted Qdrant is provided.
 
-```yaml
-services:
-  qdrant:      # Vector database
-  fantasy-nba: # Streamlit app
+Makefile
+--------
+Common `make` targets are provided for convenience. Run from the project root:
+
+- `make help` — Show available targets
+- `make build` — Build Docker images (`docker-compose build`)
+- `make ingest-data` — Start Qdrant and run the ingestion script (uses Docker)
+- `make project-run` — Start the app via `docker-compose up -d`
+- `make stop` — Stop running containers (`docker-compose down`)
+- `make clean` — Remove containers and prune Docker system
+
+Example:
+
+```bash
+make ingest-data
 ```
 
-Qdrant runs on port 6335, app on port 8504.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## License
-
-MIT License - see LICENSE file for details
-
-## Acknowledgments
-
-- NBA data from Basketball Reference
-- Built for DataTalksClub LLM Zoomcamp
-- Uses Groq API for fast LLM inference
-
-## Contact
-
-**GitHub**: [@idalbo](https://github.com/idalbo)  
-**Live Demo**: [fantasy-nba-advisor.streamlit.app](https://fantasy-nba-advisor.streamlit.app/)
-
----
-
-Built with ❤️ for fantasy basketball enthusiasts
+Contact
+-------
+Repository: https://github.com/idalbo/fantasy_nba_advisor
